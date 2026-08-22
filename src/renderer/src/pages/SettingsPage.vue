@@ -41,6 +41,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { dayjs } from '../utils/dayjs.ts'
 import { EllipsisVerticalIcon } from '@heroicons/vue/24/outline'
+import { projectSortOrder, taskSortOrder } from '../utils/listSorting.ts'
 
 type LinuxXWinExtensionStatus = {
     applicable: boolean
@@ -421,6 +422,40 @@ watch(activityTrackingEnabled, (enabled) => {
                         <span class="ms-2 text-sm">Show Tray / Menu Bar Timer</span>
                     </label>
                 </div>
+            </div>
+
+            <div
+                class="bg-card-background rounded-lg border border-card-background-separator p-6 mb-6">
+                <div class="mb-4 text-lg font-medium">List Sorting</div>
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div class="flex flex-col space-y-1">
+                        <label for="projectSortOrder" class="text-sm">Project sorting</label>
+                        <Select id="projectSortOrder" v-model="projectSortOrder">
+                            <SelectTrigger class="w-48">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="asc">Ascending</SelectItem>
+                                <SelectItem value="desc">Descending</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div class="flex flex-col space-y-1">
+                        <label for="taskSortOrder" class="text-sm">Task sorting</label>
+                        <Select id="taskSortOrder" v-model="taskSortOrder">
+                            <SelectTrigger class="w-48">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="asc">Ascending</SelectItem>
+                                <SelectItem value="desc">Descending</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+                <p class="mt-3 text-xs text-muted-foreground">
+                    Uses locale-aware natural sorting for mixed Chinese, English, and numeric names.
+                </p>
             </div>
 
             <div

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useQuery, useInfiniteQuery, useIsMutating } from '@tanstack/vue-query'
+import { useQuery, useInfiniteQuery, useIsMutating, useQueryClient } from '@tanstack/vue-query'
 import { type Component, computed, onMounted, ref, watch, watchEffect } from 'vue'
 
 import {
@@ -35,7 +35,7 @@ import { getAllTags, useTagCreateMutation } from '../utils/tags.ts'
 import { LoadingSpinner } from '@solidtime/ui'
 
 import { useLiveTimer } from '../utils/liveTimer.ts'
-import { ClockIcon } from '@heroicons/vue/20/solid'
+import { ArrowPathIcon, ClockIcon } from '@heroicons/vue/20/solid'
 import { CardTitle } from '@solidtime/ui'
 import { useElementVisibility } from '@vueuse/core'
 import { currentMembershipId, useMyMemberships } from '../utils/myMemberships.ts'
@@ -50,12 +50,18 @@ import { useTimer, getLastWorkTimeEntry } from '../utils/useTimer.ts'
 import { useBreaksEnabled } from '../utils/organization.ts'
 import { useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
+import {
+    projectSortOrder,
+    sortNamedItems,
+    taskSortOrder,
+} from '../utils/listSorting.ts'
 
 // Same as the ui package's TimeTrackerMode, which is not exported from its index
 type TimeTrackerMode = 'project' | 'simple'
 
 const { currentOrganizationId, currentMembership } = useMyMemberships()
 const currentOrganizationLoaded = computed(() => !!currentOrganizationId.value)
+const queryClient = useQueryClient()
 
 const { liveTimer, startLiveTimer, stopLiveTimer } = useLiveTimer()
 
@@ -92,10 +98,24 @@ function toggleTimeTrackerMode() {
 }
 
 const selectedTimeEntries = ref([] as TimeEntry[])
+const isSyncing = ref(false)
 
 watch(currentOrganizationId, () => {
     selectedTimeEntries.value = []
 })
+
+async function syncServerData() {
+    if (isSyncing.value) {
+        return
+    }
+
+    isSyncing.value = true
+    try {
+        await queryClient.refetchQueries({ type: 'active' })
+    } finally {
+        isSyncing.value = false
+    }
+}
 
 const {
     data: timeEntriesInfiniteData,
@@ -179,7 +199,9 @@ const { data: projectsResponse } = useQuery({
     enabled: currentOrganizationLoaded,
 })
 
-const projects = computed(() => projectsResponse.value?.data)
+const projects = computed(() =>
+    sortNamedItems(projectsResponse.value?.data, projectSortOrder.value)
+)
 
 const { data: clientsResponse } = useQuery({
     queryKey: ['clients', currentOrganizationId],
@@ -194,7 +216,7 @@ const { data: tasksResponse } = useQuery({
     queryFn: () => getAllTasks(currentOrganizationId.value),
     enabled: currentOrganizationLoaded,
 })
-const tasks = computed(() => tasksResponse.value?.data)
+const tasks = computed(() => sortNamedItems(tasksResponse.value?.data, taskSortOrder.value))
 
 const { data: tagsResponse } = useQuery({
     queryKey: ['tags', currentOrganizationId],
@@ -420,7 +442,17 @@ watch(isLoadMoreVisible, async (isVisible) => {
                             @update-time-entry="updateCurrentTimeEntry"></TimeTrackerControls>
                     </div>
                 </div>
-                <div class="flex justify-center items-center pt-9 group pr-4">
+                <div class="flex justify-center items-center pt-9 group pr-4 space-x-1">
+                    <button
+                        type="button"
+                        title="Sync now"
+                        aria-label="Sync now"
+                        :disabled="isSyncing"
+                        class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-text-tertiary transition hover:bg-quaternary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                        @click="syncServerData">
+                        <ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />
+                        <span>{{ isSyncing ? 'Syncing...' : 'Sync' }}</span>
+                    </button>
                     <TimeTrackerMoreOptionsDropdown
                         :hasActiveTimer="isActive"
                         :timeTrackerMode
