@@ -13,7 +13,6 @@ const DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT = 48
 const DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING = 12
 const DESCRIPTION_SUGGESTIONS_MAX_HEIGHT = 348
 const DESCRIPTION_SUGGESTIONS_GAP = 6
-const DESCRIPTION_SUGGESTIONS_X_OFFSET = 34
 
 interface ProjectTaskPickerProject {
     id: string
@@ -105,7 +104,7 @@ function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow, suggestionCo
     const desiredHeight = getDescriptionSuggestionsHeight(suggestionCount)
     const height = Math.min(desiredHeight, Math.max(54, workArea.height - 24))
 
-    let x = miniBounds.x + DESCRIPTION_SUGGESTIONS_X_OFFSET
+    let x = miniBounds.x
     if (x + DESCRIPTION_SUGGESTIONS_WIDTH > workArea.x + workArea.width) {
         x = workArea.x + workArea.width - DESCRIPTION_SUGGESTIONS_WIDTH
     }

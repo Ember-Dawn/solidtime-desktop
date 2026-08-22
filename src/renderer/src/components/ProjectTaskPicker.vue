@@ -104,9 +104,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="h-screen w-screen p-1.5 bg-transparent">
-        <div
-            class="h-full overflow-hidden rounded-xl border border-border-primary bg-background shadow-xl flex flex-col text-text-primary">
+    <div
+        class="h-screen w-screen overflow-hidden border border-border-primary bg-background shadow-xl flex flex-col text-text-primary">
             <div class="p-2 border-b border-border-primary shrink-0">
                 <div class="relative">
                     <MagnifyingGlassIcon
@@ -182,7 +181,6 @@ onBeforeUnmount(() => {
                     class="px-4 py-10 text-center text-sm text-text-tertiary">
                     No matching projects or tasks
                 </div>
-            </div>
         </div>
     </div>
 </template>

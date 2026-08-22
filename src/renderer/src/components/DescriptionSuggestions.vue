@@ -41,10 +41,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="h-screen w-screen p-1.5 bg-transparent">
-        <div
-            class="h-full overflow-hidden rounded-xl border border-border-primary bg-background shadow-xl text-text-primary">
-            <div class="h-full overflow-y-auto p-1.5">
+    <div
+        class="h-screen w-screen overflow-hidden border border-border-primary bg-background shadow-xl text-text-primary">
+        <div class="h-full overflow-y-auto p-1.5">
                 <button
                     v-for="(suggestion, index) in suggestions"
                     :key="`${suggestion.description ?? ''}:${suggestion.projectId ?? ''}:${suggestion.taskId ?? ''}`"
@@ -70,7 +69,6 @@ onBeforeUnmount(() => {
                         </template>
                     </span>
                 </button>
-            </div>
         </div>
     </div>
 </template>

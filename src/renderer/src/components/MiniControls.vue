@@ -117,24 +117,16 @@ const projects = computed(() => {
 })
 
 const shownDescription = computed(() => {
-    if (isRunning.value) {
-        return currentTimeEntry.value.description || null
-    }
-    return lastTimeEntry.value.description || null
+    if (!isRunning.value) return null
+    return currentTimeEntry.value.description || null
 })
 const currentTask = computed(() => {
-    if (isRunning.value) {
-        return tasks.value?.find((task) => task.id === currentTimeEntry.value.task_id)
-    } else {
-        return tasks.value?.find((task) => task.id === lastTimeEntry.value.task_id)
-    }
+    if (!isRunning.value) return undefined
+    return tasks.value?.find((task) => task.id === currentTimeEntry.value.task_id)
 })
 const shownProject = computed(() => {
-    if (isRunning.value) {
-        return projects.value?.find((project) => project.id === currentTimeEntry.value.project_id)
-    } else {
-        return projects.value?.find((project) => project.id === lastTimeEntry.value.project_id)
-    }
+    if (!isRunning.value) return undefined
+    return projects.value?.find((project) => project.id === currentTimeEntry.value.project_id)
 })
 
 watchEffect(() => {
