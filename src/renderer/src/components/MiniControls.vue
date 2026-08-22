@@ -4,9 +4,12 @@ import { Coffee, Play } from '@lucide/vue'
 import { time, TimeTrackerStartStop } from '@solidtime/ui'
 import { useLiveTimer } from '../utils/liveTimer'
 import { useMyMemberships } from '../utils/myMemberships'
-import { computed, watchEffect } from 'vue'
+import { computed, nextTick, ref, watchEffect } from 'vue'
 import { useStorage } from '@vueuse/core'
-import { emptyTimeEntry } from '../utils/timeEntries'
+import {
+    emptyTimeEntry,
+    useCurrentTimeEntryUpdateMutation,
+} from '../utils/timeEntries'
 import { useQuery } from '@tanstack/vue-query'
 import { getAllProjects } from '../utils/projects'
 import { getAllTasks } from '../utils/tasks'
@@ -14,11 +17,14 @@ import { sendEventToWindow } from '../utils/events'
 import { showMainWindow } from '../utils/window'
 import { dayjs } from '../utils/dayjs'
 import { useBreaksEnabled } from '../utils/organization'
+import { projectSortOrder, sortNamedItems, taskSortOrder } from '../utils/listSorting'
+import type { TimeEntry } from '@solidtime/api'
 const { liveTimer, startLiveTimer, stopLiveTimer } = useLiveTimer()
 
 const { currentOrganizationId } = useMyMemberships()
 const currentTimeEntry = useStorage('currentTimeEntry', { ...emptyTimeEntry })
 const lastTimeEntry = useStorage('lastTimeEntry', { ...emptyTimeEntry })
+const currentTimeEntryUpdateMutation = useCurrentTimeEntryUpdateMutation()
 
 const organizationIdToLoad = computed(() => {
     if (currentTimeEntry.value.organization_id && currentTimeEntry.value.organization_id !== '') {
@@ -35,6 +41,7 @@ const isRunning = computed(
 )
 
 const isOnBreak = computed(() => isRunning.value && currentTimeEntry.value.type === 'break')
+const canEditEntry = computed(() => isRunning.value && !isOnBreak.value)
 
 // Guard: a stale stored break entry must never be offered for resume
 const canResumeAfterBreak = computed(
@@ -70,13 +77,13 @@ const { data: currentTimeEntryTasksResponse } = useQuery({
 })
 
 const tasks = computed(() => {
-    if (isRunning.value) {
-        return currentTimeEntryTasksResponse.value?.data
-    }
-    return tasksResponse.value?.data
+    const taskList = isRunning.value
+        ? currentTimeEntryTasksResponse.value?.data
+        : tasksResponse.value?.data
+    return sortNamedItems(taskList, taskSortOrder.value)
 })
 const projects = computed(() => {
-    return projectsResponse.value?.data
+    return sortNamedItems(projectsResponse.value?.data, projectSortOrder.value)
 })
 
 const shownDescription = computed(() => {
@@ -129,6 +136,58 @@ const currentTimer = computed(() => {
     }
     return '00:00:00'
 })
+
+const isEditingDescription = ref(false)
+const descriptionDraft = ref('')
+const descriptionInput = ref<HTMLInputElement | null>(null)
+
+async function startDescriptionEdit() {
+    if (!canEditEntry.value) return
+    descriptionDraft.value = currentTimeEntry.value.description ?? ''
+    isEditingDescription.value = true
+    await nextTick()
+    descriptionInput.value?.focus()
+    descriptionInput.value?.select()
+}
+
+function cancelDescriptionEdit() {
+    isEditingDescription.value = false
+    descriptionDraft.value = ''
+}
+
+async function updateCurrentEntry(changes: Partial<TimeEntry>) {
+    if (!canEditEntry.value || !currentTimeEntry.value.id) return
+
+    const previousEntry = { ...currentTimeEntry.value }
+    const updatedEntry = {
+        ...currentTimeEntry.value,
+        ...changes,
+    }
+    currentTimeEntry.value = updatedEntry
+
+    try {
+        await currentTimeEntryUpdateMutation.mutateAsync(updatedEntry)
+    } catch {
+        currentTimeEntry.value = previousEntry
+    }
+}
+
+async function saveDescription() {
+    if (!isEditingDescription.value) return
+    isEditingDescription.value = false
+    const description = descriptionDraft.value.trim()
+    await updateCurrentEntry({ description: description || null })
+}
+
+function onProjectChange(event: Event) {
+    const projectId = (event.target as HTMLSelectElement).value || null
+    void updateCurrentEntry({ project_id: projectId })
+}
+
+function onTaskChange(event: Event) {
+    const taskId = (event.target as HTMLSelectElement).value || null
+    void updateCurrentEntry({ task_id: taskId })
+}
 </script>
 
 <template>
@@ -152,31 +211,77 @@ const currentTimer = computed(() => {
                         data-tauri-drag-region />
                 </svg>
             </div>
-            <div
-                class="cursor-pointer rounded-lg flex items-center shrink min-w-0 flex-1"
-                @click="focusMainWindow">
+            <div class="rounded-lg flex items-center shrink min-w-0 flex-1">
                 <div
                     v-if="isOnBreak"
-                    class="flex items-center shrink-0 space-x-1.5 text-sm font-medium whitespace-nowrap text-amber-600 dark:text-amber-400">
+                    class="flex items-center shrink-0 space-x-1.5 text-sm font-medium whitespace-nowrap text-amber-600 dark:text-amber-400 cursor-pointer"
+                    @click="focusMainWindow">
                     <Coffee class="w-4 h-4 shrink-0" />
                     <span>On break</span>
                 </div>
                 <div v-else class="flex flex-col flex-1 min-w-0 leading-tight">
-                    <div
-                        class="truncate text-sm font-medium"
-                        :class="shownDescription ? 'text-black' : 'text-text-tertiary'">
+                    <input
+                        v-if="isEditingDescription"
+                        ref="descriptionInput"
+                        v-model="descriptionDraft"
+                        type="text"
+                        class="h-[18px] w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium text-black outline-none ring-0 focus:ring-0"
+                        style="-webkit-app-region: no-drag"
+                        @keydown.enter.prevent="saveDescription"
+                        @keydown.esc.prevent="cancelDescriptionEdit"
+                        @blur="saveDescription" />
+                    <button
+                        v-else
+                        type="button"
+                        class="truncate text-left text-sm font-medium disabled:cursor-default"
+                        :class="[
+                            shownDescription ? 'text-black' : 'text-black/25',
+                            canEditEntry ? 'cursor-text hover:bg-black/5 rounded-sm' : '',
+                        ]"
+                        :disabled="!canEditEntry"
+                        style="-webkit-app-region: no-drag"
+                        @click="startDescriptionEdit">
                         {{ shownDescription ?? 'No Description' }}
-                    </div>
+                    </button>
                     <div class="flex items-center min-w-0 text-sm text-black">
                         <span
                             class="w-2.5 h-2.5 rounded-full shrink-0 mr-1.5"
                             :style="{ backgroundColor: shownProject?.color ?? '#a1a1aa' }"></span>
-                        <span class="truncate shrink min-w-0">
-                            {{ shownProject?.name ?? 'No Project' }}
+                        <span class="relative truncate shrink min-w-0">
+                            <span>{{ shownProject?.name ?? 'No Project' }}</span>
+                            <select
+                                v-if="canEditEntry"
+                                :value="currentTimeEntry.project_id ?? ''"
+                                aria-label="Project"
+                                class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                                style="-webkit-app-region: no-drag"
+                                @change="onProjectChange">
+                                <option value="">No Project</option>
+                                <option
+                                    v-for="project in projects ?? []"
+                                    :key="project.id"
+                                    :value="project.id">
+                                    {{ project.name }}
+                                </option>
+                            </select>
                         </span>
-                        <template v-if="currentTask">
+                        <template v-if="currentTask || canEditEntry">
                             <ChevronRightIcon class="w-4 shrink-0 mx-0.5 text-black"></ChevronRightIcon>
-                            <span class="truncate shrink min-w-0">{{ currentTask.name }}</span>
+                            <span class="relative truncate shrink min-w-0">
+                                <span>{{ currentTask?.name ?? 'No Task' }}</span>
+                                <select
+                                    v-if="canEditEntry"
+                                    :value="currentTimeEntry.task_id ?? ''"
+                                    aria-label="Task"
+                                    class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                                    style="-webkit-app-region: no-drag"
+                                    @change="onTaskChange">
+                                    <option value="">No Task</option>
+                                    <option v-for="task in tasks ?? []" :key="task.id" :value="task.id">
+                                        {{ task.name }}
+                                    </option>
+                                </select>
+                            </span>
                         </template>
                     </div>
                 </div>
@@ -193,7 +298,7 @@ const currentTimer = computed(() => {
                 @click="resumeAfterBreak">
                 <Play class="w-3 h-3 shrink-0" />
                 <span class="truncate">{{
-                    resumeDescription ? `Resume "${resumeDescription}"` : 'Resume'
+                    resumeDescription ? `Resume \"${resumeDescription}\"` : 'Resume'
                 }}</span>
             </button>
             <div
