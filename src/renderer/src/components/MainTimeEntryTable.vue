@@ -448,10 +448,10 @@ watch(isLoadMoreVisible, async (isVisible) => {
                         title="Sync now"
                         aria-label="Sync now"
                         :disabled="isSyncing"
-                        class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-text-tertiary transition hover:bg-quaternary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                        class="fixed top-1 right-[142px] z-50 flex h-8 w-8 items-center justify-center rounded-md text-text-tertiary transition hover:bg-quaternary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                        style="-webkit-app-region: no-drag"
                         @click="syncServerData">
                         <ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />
-                        <span>{{ isSyncing ? 'Syncing...' : 'Sync' }}</span>
                     </button>
                     <TimeTrackerMoreOptionsDropdown
                         :hasActiveTimer="isActive"
