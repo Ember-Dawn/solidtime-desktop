@@ -34,11 +34,8 @@ onBeforeUnmount(() => {
 <template>
     <div class="h-screen w-screen p-1.5 bg-transparent">
         <div
-            class="h-full overflow-hidden rounded-xl border border-border-primary bg-background shadow-xl flex flex-col text-text-primary">
-            <div class="px-3 py-2 border-b border-border-primary text-xs text-text-tertiary shrink-0">
-                Recent descriptions
-            </div>
-            <div class="flex-1 min-h-0 overflow-y-auto p-1.5">
+            class="h-full overflow-hidden rounded-xl border border-border-primary bg-background shadow-xl text-text-primary">
+            <div class="h-full overflow-y-auto p-1.5">
                 <button
                     v-for="(suggestion, index) in suggestions"
                     :key="suggestion"

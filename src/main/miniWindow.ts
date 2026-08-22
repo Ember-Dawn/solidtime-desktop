@@ -4,12 +4,15 @@ import { isE2ETesting } from './env'
 
 const MINI_WINDOW_WIDTH = 420
 const MINI_WINDOW_HEIGHT = 52
+const MINI_WINDOW_RADIUS = 20
 const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
 const PROJECT_TASK_PICKER_WIDTH = 420
 const PROJECT_TASK_PICKER_HEIGHT = 520
 const PROJECT_TASK_PICKER_GAP = 8
 const DESCRIPTION_SUGGESTIONS_WIDTH = 320
-const DESCRIPTION_SUGGESTIONS_HEIGHT = 260
+const DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT = 42
+const DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING = 12
+const DESCRIPTION_SUGGESTIONS_MAX_HEIGHT = 348
 const DESCRIPTION_SUGGESTIONS_GAP = 6
 const DESCRIPTION_SUGGESTIONS_X_OFFSET = 34
 
@@ -59,6 +62,32 @@ function closeDescriptionSuggestions() {
     descriptionSuggestionsWindow = null
 }
 
+function createRoundedWindowShape(width: number, height: number, radius: number) {
+    const safeRadius = Math.min(radius, Math.floor(width / 2), Math.floor(height / 2))
+    const shape: { x: number; y: number; width: number; height: number }[] = []
+
+    for (let y = 0; y < height; y += 1) {
+        const distanceFromEdge = Math.min(y + 0.5, height - y - 0.5)
+        let inset = 0
+
+        if (distanceFromEdge < safeRadius) {
+            const dy = safeRadius - distanceFromEdge
+            inset = Math.ceil(
+                safeRadius - Math.sqrt(Math.max(0, safeRadius * safeRadius - dy * dy))
+            )
+        }
+
+        shape.push({
+            x: inset,
+            y,
+            width: Math.max(1, width - inset * 2),
+            height: 1,
+        })
+    }
+
+    return shape
+}
+
 function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
     const miniBounds = miniWindow.getBounds()
     const display = screen.getDisplayMatching(miniBounds)
@@ -79,11 +108,20 @@ function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
     return { x, y, width: PROJECT_TASK_PICKER_WIDTH, height }
 }
 
-function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow) {
+function getDescriptionSuggestionsHeight(suggestionCount: number) {
+    return Math.min(
+        DESCRIPTION_SUGGESTIONS_MAX_HEIGHT,
+        DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING +
+            Math.max(1, suggestionCount) * DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT
+    )
+}
+
+function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow, suggestionCount: number) {
     const miniBounds = miniWindow.getBounds()
     const display = screen.getDisplayMatching(miniBounds)
     const workArea = display.workArea
-    const height = Math.min(DESCRIPTION_SUGGESTIONS_HEIGHT, Math.max(140, workArea.height - 24))
+    const desiredHeight = getDescriptionSuggestionsHeight(suggestionCount)
+    const height = Math.min(desiredHeight, Math.max(54, workArea.height - 24))
 
     let x = miniBounds.x + DESCRIPTION_SUGGESTIONS_X_OFFSET
     if (x + DESCRIPTION_SUGGESTIONS_WIDTH > workArea.x + workArea.width) {
@@ -155,7 +193,7 @@ function openDescriptionSuggestions(
     closeDescriptionSuggestions()
 
     const suggestionsWindow = new BrowserWindow({
-        ...getDescriptionSuggestionsBounds(miniWindow),
+        ...getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
         show: false,
         frame: false,
         resizable: false,
@@ -196,8 +234,16 @@ function openDescriptionSuggestions(
     }
 }
 
-function updateDescriptionSuggestions(data: DescriptionSuggestionsData) {
+function updateDescriptionSuggestions(
+    miniWindow: BrowserWindow,
+    data: DescriptionSuggestionsData
+) {
     if (!descriptionSuggestionsWindow || descriptionSuggestionsWindow.isDestroyed()) return
+
+    descriptionSuggestionsWindow.setBounds(
+        getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
+        false
+    )
     descriptionSuggestionsWindow.webContents.send('descriptionSuggestionsData', data)
 }
 
@@ -254,13 +300,17 @@ export function initializeMiniWindow(icon: string) {
             false
         )
 
-        // Windows shaped frameless windows can keep the shape created for the
-        // previous monitor. Re-apply it whenever the monitor/DPI changes so the
-        // renderer is not clipped after moving between mixed-DPI displays.
+        // Windows shaped frameless windows can keep stale geometry after a
+        // mixed-DPI transition. Re-apply a rounded shape so the native window
+        // clips to the same radius as the renderer instead of a full rectangle.
         if (process.platform === 'win32') {
-            miniWindow.setShape([
-                { x: 0, y: 0, width: MINI_WINDOW_WIDTH, height: MINI_WINDOW_HEIGHT },
-            ])
+            miniWindow.setShape(
+                createRoundedWindowShape(
+                    MINI_WINDOW_WIDTH,
+                    MINI_WINDOW_HEIGHT,
+                    MINI_WINDOW_RADIUS
+                )
+            )
         }
     }
 
@@ -354,7 +404,7 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
     })
     ipcMain.on('updateDescriptionSuggestions', (event, data: DescriptionSuggestionsData) => {
         if (event.sender !== miniWindow.webContents || isE2ETesting()) return
-        updateDescriptionSuggestions(data)
+        updateDescriptionSuggestions(miniWindow, data)
     })
     ipcMain.on('descriptionSuggestionSelect', (event, description: string) => {
         if (

@@ -77,10 +77,11 @@ const { data: currentTimeEntryTasksResponse } = useQuery({
     enabled: currentOrganizationLoaded,
 })
 
-const organizationMembershipIdToLoad = computed(() =>
-    memberships.value.find(
-        (membership) => membership.organization.id === organizationIdToLoad.value
-    )?.id ?? null
+const organizationMembershipIdToLoad = computed(
+    () =>
+        memberships.value.find(
+            (membership) => membership.organization.id === organizationIdToLoad.value
+        )?.id ?? null
 )
 const descriptionHistoryEnabled = computed(
     () => currentOrganizationLoaded.value && organizationMembershipIdToLoad.value !== null
@@ -162,6 +163,7 @@ const descriptionDraft = ref('')
 const descriptionInput = ref<HTMLInputElement | null>(null)
 const activeDescriptionSuggestionIndex = ref(-1)
 const descriptionSuggestionsOpen = ref(false)
+const descriptionHasUserInput = ref(false)
 let descriptionBlurTimer: ReturnType<typeof setTimeout> | null = null
 
 const recentDescriptions = computed(() => {
@@ -180,12 +182,14 @@ const recentDescriptions = computed(() => {
 })
 
 const filteredDescriptionSuggestions = computed(() => {
+    if (!descriptionHasUserInput.value) return []
+
     const term = descriptionDraft.value.trim().toLocaleLowerCase()
-    const matches = recentDescriptions.value.filter((description) => {
-        if (!term) return true
-        return description.toLocaleLowerCase().includes(term)
-    })
-    return matches.slice(0, 12)
+    if (!term) return []
+
+    return recentDescriptions.value
+        .filter((description) => description.toLocaleLowerCase().includes(term))
+        .slice(0, 12)
 })
 
 function closeDescriptionSuggestions() {
@@ -222,12 +226,12 @@ function syncDescriptionSuggestions(forceOpen = false) {
 async function startDescriptionEdit() {
     if (!canEditEntry.value) return
     descriptionDraft.value = currentTimeEntry.value.description ?? ''
+    descriptionHasUserInput.value = false
     activeDescriptionSuggestionIndex.value = -1
     isEditingDescription.value = true
     await nextTick()
     descriptionInput.value?.focus()
     descriptionInput.value?.select()
-    syncDescriptionSuggestions(true)
 }
 
 function cancelDescriptionEdit() {
@@ -237,6 +241,7 @@ function cancelDescriptionEdit() {
     }
     closeDescriptionSuggestions()
     isEditingDescription.value = false
+    descriptionHasUserInput.value = false
     descriptionDraft.value = ''
 }
 
@@ -265,6 +270,7 @@ async function commitDescription(value: string) {
     }
     closeDescriptionSuggestions()
     isEditingDescription.value = false
+    descriptionHasUserInput.value = false
     const description = value.trim()
     descriptionDraft.value = ''
     await updateCurrentEntry({ description: description || null })
@@ -273,6 +279,13 @@ async function commitDescription(value: string) {
 
 async function saveDescription() {
     await commitDescription(descriptionDraft.value)
+}
+
+function handleDescriptionInput() {
+    if (!isEditingDescription.value) return
+    descriptionHasUserInput.value = true
+    activeDescriptionSuggestionIndex.value = -1
+    syncDescriptionSuggestions()
 }
 
 function handleDescriptionKeydown(event: KeyboardEvent) {
@@ -394,12 +407,6 @@ onMounted(() => {
         })
 })
 
-watch(descriptionDraft, () => {
-    if (!isEditingDescription.value) return
-    activeDescriptionSuggestionIndex.value = -1
-    syncDescriptionSuggestions()
-})
-
 watch(isRunning, (running) => {
     if (!running) {
         cancelDescriptionEdit()
@@ -419,7 +426,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div
-        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[20px] py-1 flex items-center cursor-default justify-between select-none">
+        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[20px] py-1 flex items-center cursor-default justify-between select-none overflow-hidden">
         <div
             class="flex items-center relative min-w-0"
             :class="isOnBreak ? 'shrink-0' : 'flex-1'">
@@ -455,6 +462,7 @@ onBeforeUnmount(() => {
                         autocomplete="off"
                         class="h-[18px] w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium text-black outline-none ring-0 focus:ring-0"
                         style="-webkit-app-region: no-drag"
+                        @input="handleDescriptionInput"
                         @keydown="handleDescriptionKeydown"
                         @blur="handleDescriptionBlur" />
                     <button
