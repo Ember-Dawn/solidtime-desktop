@@ -100,6 +100,10 @@ export default defineConfig({
                 input: {
                     main: resolve(__dirname, 'src/renderer/index.html'),
                     mini: resolve(__dirname, 'src/renderer/index-mini.html'),
+                    projectTaskPicker: resolve(
+                        __dirname,
+                        'src/renderer/index-project-task-picker.html'
+                    ),
                 },
             },
         },

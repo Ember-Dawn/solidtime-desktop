@@ -30,6 +30,30 @@ export interface XWinExtensionActionResult {
     error?: string
 }
 
+export interface ProjectTaskPickerProject {
+    id: string
+    name: string
+    color: string | null
+}
+
+export interface ProjectTaskPickerTask {
+    id: string
+    name: string
+    project_id: string
+}
+
+export interface ProjectTaskPickerData {
+    projects: ProjectTaskPickerProject[]
+    tasks: ProjectTaskPickerTask[]
+    currentProjectId: string | null
+    currentTaskId: string | null
+}
+
+export interface ProjectTaskPickerSelection {
+    projectId: string | null
+    taskId: string | null
+}
+
 export interface IElectronAPI {
     loadPreferences: () => Promise<void>
     showMainWindow: () => void
@@ -85,6 +109,13 @@ export interface IElectronAPI {
     getXWinExtensionStatus: () => Promise<XWinExtensionStatus>
     installXWinExtension: () => Promise<XWinExtensionActionResult>
     enableXWinExtension: () => Promise<XWinExtensionActionResult>
+    openProjectTaskPicker: (data: ProjectTaskPickerData) => void
+    onProjectTaskPickerSelection: (
+        callback: (selection: ProjectTaskPickerSelection) => void
+    ) => () => void
+    onProjectTaskPickerData: (callback: (data: ProjectTaskPickerData) => void) => () => void
+    selectProjectTask: (selection: ProjectTaskPickerSelection) => void
+    closeProjectTaskPicker: () => void
 }
 
 declare global {

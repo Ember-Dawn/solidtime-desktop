@@ -18,6 +18,22 @@ if (process.contextIsolated) {
             resumeAfterBreak: () => ipcRenderer.send('resumeAfterBreak'),
             showMainWindow: () => ipcRenderer.send('showMainWindow'),
             getSettings: () => ipcRenderer.invoke('getSettings'),
+            openProjectTaskPicker: (data: unknown) =>
+                ipcRenderer.send('openProjectTaskPicker', data),
+            onProjectTaskPickerSelection: (callback: (selection: unknown) => void) => {
+                const listener = (_event: Electron.IpcRendererEvent, selection: unknown) =>
+                    callback(selection)
+                ipcRenderer.on('projectTaskPickerSelection', listener)
+                return () => ipcRenderer.removeListener('projectTaskPickerSelection', listener)
+            },
+            onProjectTaskPickerData: (callback: (data: unknown) => void) => {
+                const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
+                ipcRenderer.on('projectTaskPickerData', listener)
+                return () => ipcRenderer.removeListener('projectTaskPickerData', listener)
+            },
+            selectProjectTask: (selection: unknown) =>
+                ipcRenderer.send('projectTaskPickerSelect', selection),
+            closeProjectTaskPicker: () => ipcRenderer.send('closeProjectTaskPicker'),
         })
     } catch (error) {
         console.error(error)

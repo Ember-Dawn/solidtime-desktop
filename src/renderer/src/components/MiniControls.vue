@@ -4,12 +4,9 @@ import { Coffee, Play } from '@lucide/vue'
 import { time, TimeTrackerStartStop } from '@solidtime/ui'
 import { useLiveTimer } from '../utils/liveTimer'
 import { useMyMemberships } from '../utils/myMemberships'
-import { computed, nextTick, ref, watchEffect } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
 import { useStorage } from '@vueuse/core'
-import {
-    emptyTimeEntry,
-    useCurrentTimeEntryUpdateMutation,
-} from '../utils/timeEntries'
+import { emptyTimeEntry, useCurrentTimeEntryUpdateMutation } from '../utils/timeEntries'
 import { useQuery } from '@tanstack/vue-query'
 import { getAllProjects } from '../utils/projects'
 import { getAllTasks } from '../utils/tasks'
@@ -179,15 +176,62 @@ async function saveDescription() {
     await updateCurrentEntry({ description: description || null })
 }
 
-function onProjectChange(event: Event) {
-    const projectId = (event.target as HTMLSelectElement).value || null
-    void updateCurrentEntry({ project_id: projectId })
+function openProjectTaskPicker() {
+    if (!canEditEntry.value) return
+
+    window.electronAPI.openProjectTaskPicker({
+        projects: (projects.value ?? []).map((project) => ({
+            id: project.id,
+            name: project.name,
+            color: project.color ?? null,
+        })),
+        tasks: (tasks.value ?? []).map((task) => ({
+            id: task.id,
+            name: task.name,
+            project_id: task.project_id,
+        })),
+        currentProjectId: currentTimeEntry.value.project_id ?? null,
+        currentTaskId: currentTimeEntry.value.task_id ?? null,
+    })
 }
 
-function onTaskChange(event: Event) {
-    const taskId = (event.target as HTMLSelectElement).value || null
-    void updateCurrentEntry({ task_id: taskId })
-}
+let removeProjectTaskPickerSelectionListener: (() => void) | null = null
+
+onMounted(() => {
+    removeProjectTaskPickerSelectionListener = window.electronAPI.onProjectTaskPickerSelection(
+        (selection) => {
+            if (!canEditEntry.value) return
+
+            if (selection.taskId) {
+                const selectedTask = tasks.value?.find((task) => task.id === selection.taskId)
+                if (!selectedTask) return
+                void updateCurrentEntry({
+                    project_id: selectedTask.project_id,
+                    task_id: selectedTask.id,
+                })
+                return
+            }
+
+            if (selection.projectId) {
+                const selectedProject = projects.value?.find(
+                    (project) => project.id === selection.projectId
+                )
+                if (!selectedProject) return
+            }
+
+            // Selecting a project by itself always clears the old task. This
+            // prevents an invalid project/task combination from reaching the API.
+            void updateCurrentEntry({
+                project_id: selection.projectId,
+                task_id: null,
+            })
+        }
+    )
+})
+
+onBeforeUnmount(() => {
+    removeProjectTaskPickerSelectionListener?.()
+})
 </script>
 
 <template>
@@ -219,7 +263,7 @@ function onTaskChange(event: Event) {
                     <Coffee class="w-4 h-4 shrink-0" />
                     <span>On break</span>
                 </div>
-                <div v-else class="flex flex-col flex-1 min-w-0 leading-tight">
+                <div v-else class="flex flex-col flex-1 min-w-0 gap-[3px] leading-[1.05]">
                     <input
                         v-if="isEditingDescription"
                         ref="descriptionInput"
@@ -235,7 +279,7 @@ function onTaskChange(event: Event) {
                         type="button"
                         class="truncate text-left text-sm font-medium disabled:cursor-default"
                         :class="[
-                            shownDescription ? 'text-black' : 'text-black/25',
+                            shownDescription ? 'text-black' : 'text-black/20',
                             canEditEntry ? 'cursor-text hover:bg-black/5 rounded-sm' : '',
                         ]"
                         :disabled="!canEditEntry"
@@ -243,47 +287,24 @@ function onTaskChange(event: Event) {
                         @click="startDescriptionEdit">
                         {{ shownDescription ?? 'No Description' }}
                     </button>
-                    <div class="flex items-center min-w-0 text-sm text-black">
+                    <button
+                        type="button"
+                        class="flex items-center min-w-0 text-sm text-black text-left disabled:cursor-default"
+                        :class="canEditEntry ? 'cursor-pointer hover:bg-black/5 rounded-sm' : ''"
+                        :disabled="!canEditEntry"
+                        style="-webkit-app-region: no-drag"
+                        @click="openProjectTaskPicker">
                         <span
                             class="w-2.5 h-2.5 rounded-full shrink-0 mr-1.5"
                             :style="{ backgroundColor: shownProject?.color ?? '#a1a1aa' }"></span>
-                        <span class="relative truncate shrink min-w-0">
-                            <span>{{ shownProject?.name ?? 'No Project' }}</span>
-                            <select
-                                v-if="canEditEntry"
-                                :value="currentTimeEntry.project_id ?? ''"
-                                aria-label="Project"
-                                class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                                style="-webkit-app-region: no-drag"
-                                @change="onProjectChange">
-                                <option value="">No Project</option>
-                                <option
-                                    v-for="project in projects ?? []"
-                                    :key="project.id"
-                                    :value="project.id">
-                                    {{ project.name }}
-                                </option>
-                            </select>
+                        <span class="truncate shrink min-w-0">
+                            {{ shownProject?.name ?? 'No Project' }}
                         </span>
-                        <template v-if="currentTask || canEditEntry">
+                        <template v-if="currentTask">
                             <ChevronRightIcon class="w-4 shrink-0 mx-0.5 text-black"></ChevronRightIcon>
-                            <span class="relative truncate shrink min-w-0">
-                                <span>{{ currentTask?.name ?? 'No Task' }}</span>
-                                <select
-                                    v-if="canEditEntry"
-                                    :value="currentTimeEntry.task_id ?? ''"
-                                    aria-label="Task"
-                                    class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                                    style="-webkit-app-region: no-drag"
-                                    @change="onTaskChange">
-                                    <option value="">No Task</option>
-                                    <option v-for="task in tasks ?? []" :key="task.id" :value="task.id">
-                                        {{ task.name }}
-                                    </option>
-                                </select>
-                            </span>
+                            <span class="truncate shrink min-w-0">{{ currentTask.name }}</span>
                         </template>
-                    </div>
+                    </button>
                 </div>
             </div>
         </div>
