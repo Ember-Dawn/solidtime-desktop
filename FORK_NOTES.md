@@ -181,6 +181,17 @@ Mini Widget 已针对 Windows 多显示器不同缩放比例处理过拖动问�
 - 显示器变化时同步关闭 popup，避免 popup 留在旧坐标系中。
 
 这是已经针对真实双 4K mixed-DPI 环境解决过的问题。除非有明确替代实现，不要删除 debounce，也不要把逻辑改回每次 move 立即 `setBounds()`。
+### 2.12 Widget Start / Stop 语义
+
+Widget 的普通 Start / Stop 与 tray 的 Continue 现在有明确区分：
+
+- Widget Stop 只停止当前计时，不应调用 `showMainWindow()`，因此主窗口保持原来的隐藏/后台状态；
+- Widget 普通 Start 明确创建一个新的空白 work entry，不继承上一条 entry 的 Description / Project / Task；
+- tray 的 `Continue` 仍保留“继续上一条 entry”的语义；
+- break 后的 Resume 仍恢复 break 前的 work entry；
+- `lastTimeEntry` 继续作为内部恢复状态保留，不能因为 Widget Start 要空白就删除它。
+
+当前实现通过 IPC 区分 Widget 的 blank start 与 tray 的 continue。修改这一链路时，要同时检查 `MiniControls.vue`、mini preload、main-process 转发和 `App.vue` 的接收逻辑，避免只改一侧。
 
 ## 3. 主要相关源码
 
@@ -188,6 +199,8 @@ Mini Widget 已针对 Windows 多显示器不同缩放比例处理过拖动问�
 
 ```text
 src/main/miniWindow.ts
+src/main/mainWindow.ts
+src/preload/main.ts
 src/preload/mini.ts
 src/preload/interface.d.ts
 src/renderer/src/mini.ts
@@ -198,12 +211,14 @@ src/renderer/src/components/MainTimeEntryTable.vue
 src/renderer/src/utils/listSorting.ts
 src/renderer/src/main.ts
 src/renderer/src/App.vue
+src/renderer/src/utils/useTimer.ts
 ```
 
 职责概览：
 
 - `src/main/miniWindow.ts`：Mini Widget BrowserWindow、两个 popup BrowserWindow、窗口尺寸/位置、mixed-DPI 和相关 IPC；
-- `src/preload/mini.ts` / `interface.d.ts`：Mini / popup IPC bridge 与类型；
+- `src/main/mainWindow.ts`：主窗口 IPC 转发，包括 Widget / tray 的 timer 事件；
+- `src/preload/main.ts` / `src/preload/mini.ts` / `interface.d.ts`：主窗口、Mini / popup IPC bridge 与类型；
 - `src/renderer/src/mini.ts`：Mini renderer QueryClient、focusManager 和应用入口；
 - `MiniControls.vue`：Widget 主 UI、Description 编辑、历史建议、Project/Task 选择、timer 控件；
 - `ProjectTaskPicker.vue`：联合 Project/Task popup；
@@ -211,7 +226,8 @@ src/renderer/src/App.vue
 - `MainTimeEntryTable.vue`：主 Time Tracker 数据查询、手动同步相关逻辑及 timer 主页面行为；
 - `listSorting.ts`：Project / Task 排序；
 - `main.ts`：主 renderer QueryClient / focusManager；
-- `App.vue`：主窗口顶栏、全局应用壳层、timer 全局事件。
+- `App.vue`：主窗口顶栏、全局应用壳层、timer 全局事件，并区分 Widget blank start 与 tray continue；
+- `useTimer.ts`：`startTimer`、`continueLastTimer`、stop、break/resume 等共享 timer 语义。
 
 ## 4. 不要轻易破坏的行为
 
@@ -227,6 +243,7 @@ src/renderer/src/App.vue
 8. `Ctrl+R` 在主应用内是 Sync，不是 renderer reload。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
 10. 修改 title bar 时要注意 Windows 原生 `_ / □ / ×` 区域，不要靠容易漂移的绝对定位重新制造错位。
+11. Widget Stop 不应主动显示主窗口；Widget 普通 Start 必须保持空白新建，而 tray Continue 才恢复上一条 entry。
 
 ## 5. Windows 11 x64 本地构建
 
@@ -407,6 +424,39 @@ npm run typecheck
 npm run dev
 ```
 
+### 5.8 修改源码后不要只重新打包旧 `out/`
+
+本机曾实际遇到过：源码已经正确修改，但安装新生成的 EXE 后，Widget 仍表现为旧行为，例如：
+
+- 点击 Widget Stop 仍弹出主窗口；
+- 点击 Widget Start 仍继承上一条 entry。
+
+检查仓库源码后确认修改已经存在，最终原因是只重新执行了 `electron-builder` 打包命令，而没有先重新执行 production build。`electron-builder` 会打包现有 `out/`，不会替代 `npm run build` 去重新编译刚修改的 Vue / TypeScript 源码。
+
+因此源码有变化时必须保持两步顺序：
+
+```powershell
+npm run build
+npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64 --publish never
+```
+
+如果怀疑旧产物被复用，可先完全退出 solidtime / Electron 进程，再清理 `out` 和 `dist` 后重建：
+
+```powershell
+Get-Process solidtime,electron -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-Item -Recurse -Force .\out -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .\dist -ErrorAction SilentlyContinue
+npm run build
+npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64 --publish never
+```
+
+如果出现“源码看起来已经修好，但安装包行为完全没变化”，优先检查：
+
+1. 是否在应用修改后重新执行过 `npm run build`；
+2. `out/renderer`、`out/preload`、`out/main` 是否确实是本次源码生成的；
+3. 是否重新打包了新的 `dist\solidtime-setup-x64.exe`；
+4. 安装/测试前是否仍有旧 `solidtime.exe` 进程在运行。
+
 ## 6. Upstream 升级检查清单
 
 以后同步 upstream 或升级依赖时，不要只看编译是否通过。至少检查：
@@ -420,7 +470,9 @@ npm run dev
 - `electron-builder` 是否已经修复当前 npm dependency scanning 问题；
 - `package.json` 的 `afterSign` / notarization 配置是否仍然存在，以及 Windows 本地 build 是否仍需 `--config electron-builder.yml`；
 - `.npmrc` 的 `min-release-age` 是否被当前 npm 正式支持；
-- Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步。
+- Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；
+- 修改源码后是否先重新生成 `out/` 再打包，避免把旧 renderer / preload / main 产物重新封装进新的 EXE；
+- Widget Stop 是否保持主窗口隐藏，Widget 普通 Start 是否仍为空白新建，tray Continue 是否仍恢复上一条 entry。
 
 ## 7. 文档维护规则
 
