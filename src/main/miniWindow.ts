@@ -4,6 +4,7 @@ import { isE2ETesting } from './env'
 
 const MINI_WINDOW_WIDTH = 420
 const MINI_WINDOW_HEIGHT = 36
+const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
 
 export function initializeMiniWindow(icon: string) {
     const miniWindow = new BrowserWindow({
@@ -25,12 +26,18 @@ export function initializeMiniWindow(icon: string) {
 
     let currentDisplayId: number | undefined
     let currentScaleFactor: number | undefined
+    let displayMetricsSettleTimer: ReturnType<typeof setTimeout> | null = null
+
+    function getCurrentDisplayMetrics() {
+        const bounds = miniWindow.getBounds()
+        const display = screen.getDisplayMatching(bounds)
+        return { bounds, display }
+    }
 
     function applyDisplayMetrics(force = false) {
         if (miniWindow.isDestroyed()) return
 
-        const bounds = miniWindow.getBounds()
-        const display = screen.getDisplayMatching(bounds)
+        const { bounds, display } = getCurrentDisplayMetrics()
         const displayChanged =
             display.id !== currentDisplayId || display.scaleFactor !== currentScaleFactor
 
@@ -62,20 +69,53 @@ export function initializeMiniWindow(icon: string) {
         }
     }
 
+    function scheduleDisplayMetricsApply() {
+        if (miniWindow.isDestroyed()) return
+
+        const { display } = getCurrentDisplayMetrics()
+        const displayChanged =
+            display.id !== currentDisplayId || display.scaleFactor !== currentScaleFactor
+
+        if (!displayChanged) {
+            if (displayMetricsSettleTimer) {
+                clearTimeout(displayMetricsSettleTimer)
+                displayMetricsSettleTimer = null
+            }
+            return
+        }
+
+        if (displayMetricsSettleTimer) {
+            clearTimeout(displayMetricsSettleTimer)
+        }
+
+        // Do not resize/reposition a frameless window while Windows is actively
+        // dragging it across monitors. Changing bounds during the native drag
+        // recalculates the mouse grab offset and makes the cursor appear to jump.
+        // Wait until move events have settled, then apply the mixed-DPI fix.
+        displayMetricsSettleTimer = setTimeout(() => {
+            displayMetricsSettleTimer = null
+            applyDisplayMetrics()
+        }, DISPLAY_METRICS_SETTLE_DELAY_MS)
+    }
+
     miniWindow.on('ready-to-show', () => {
         miniWindow.setAlwaysOnTop(true, 'floating')
         applyDisplayMetrics(true)
     })
 
     miniWindow.on('move', () => {
-        applyDisplayMetrics()
+        scheduleDisplayMetricsApply()
     })
 
     const handleDisplayMetricsChanged = () => {
-        applyDisplayMetrics(true)
+        scheduleDisplayMetricsApply()
     }
     screen.on('display-metrics-changed', handleDisplayMetricsChanged)
     miniWindow.on('closed', () => {
+        if (displayMetricsSettleTimer) {
+            clearTimeout(displayMetricsSettleTimer)
+            displayMetricsSettleTimer = null
+        }
         screen.removeListener('display-metrics-changed', handleDisplayMetricsChanged)
     })
 
