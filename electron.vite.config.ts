@@ -104,6 +104,10 @@ export default defineConfig({
                         __dirname,
                         'src/renderer/index-project-task-picker.html'
                     ),
+                    descriptionSuggestions: resolve(
+                        __dirname,
+                        'src/renderer/index-description-suggestions.html'
+                    ),
                 },
             },
         },

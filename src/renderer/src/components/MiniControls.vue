@@ -4,9 +4,13 @@ import { Coffee, Play } from '@lucide/vue'
 import { time, TimeTrackerStartStop } from '@solidtime/ui'
 import { useLiveTimer } from '../utils/liveTimer'
 import { useMyMemberships } from '../utils/myMemberships'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useStorage } from '@vueuse/core'
-import { emptyTimeEntry, useCurrentTimeEntryUpdateMutation } from '../utils/timeEntries'
+import {
+    emptyTimeEntry,
+    getTimeEntriesPage,
+    useCurrentTimeEntryUpdateMutation,
+} from '../utils/timeEntries'
 import { useQuery } from '@tanstack/vue-query'
 import { getAllProjects } from '../utils/projects'
 import { getAllTasks } from '../utils/tasks'
@@ -18,7 +22,7 @@ import { projectSortOrder, sortNamedItems, taskSortOrder } from '../utils/listSo
 import type { TimeEntry } from '@solidtime/api'
 const { liveTimer, startLiveTimer, stopLiveTimer } = useLiveTimer()
 
-const { currentOrganizationId } = useMyMemberships()
+const { currentOrganizationId, memberships } = useMyMemberships()
 const currentTimeEntry = useStorage('currentTimeEntry', { ...emptyTimeEntry })
 const lastTimeEntry = useStorage('lastTimeEntry', { ...emptyTimeEntry })
 const currentTimeEntryUpdateMutation = useCurrentTimeEntryUpdateMutation()
@@ -71,6 +75,25 @@ const { data: currentTimeEntryTasksResponse } = useQuery({
     queryKey: ['tasks', currentTimeEntry.value.organization_id],
     queryFn: () => getAllTasks(currentTimeEntry.value.organization_id),
     enabled: currentOrganizationLoaded,
+})
+
+const organizationMembershipIdToLoad = computed(() =>
+    memberships.value.find(
+        (membership) => membership.organization.id === organizationIdToLoad.value
+    )?.id ?? null
+)
+const descriptionHistoryEnabled = computed(
+    () => currentOrganizationLoaded.value && organizationMembershipIdToLoad.value !== null
+)
+const { data: descriptionHistoryResponse, refetch: refetchDescriptionHistory } = useQuery({
+    queryKey: ['miniDescriptionHistory', organizationIdToLoad, organizationMembershipIdToLoad],
+    queryFn: () =>
+        getTimeEntriesPage(
+            organizationIdToLoad.value,
+            organizationMembershipIdToLoad.value,
+            undefined
+        ),
+    enabled: descriptionHistoryEnabled,
 })
 
 const tasks = computed(() => {
@@ -137,17 +160,82 @@ const currentTimer = computed(() => {
 const isEditingDescription = ref(false)
 const descriptionDraft = ref('')
 const descriptionInput = ref<HTMLInputElement | null>(null)
+const activeDescriptionSuggestionIndex = ref(-1)
+const descriptionSuggestionsOpen = ref(false)
+let descriptionBlurTimer: ReturnType<typeof setTimeout> | null = null
+
+const recentDescriptions = computed(() => {
+    const entries = descriptionHistoryResponse.value?.data ?? []
+    const unique = new Set<string>()
+    const descriptions: string[] = []
+
+    for (const entry of entries) {
+        const description = entry.description?.trim()
+        if (!description || unique.has(description)) continue
+        unique.add(description)
+        descriptions.push(description)
+    }
+
+    return descriptions
+})
+
+const filteredDescriptionSuggestions = computed(() => {
+    const term = descriptionDraft.value.trim().toLocaleLowerCase()
+    const matches = recentDescriptions.value.filter((description) => {
+        if (!term) return true
+        return description.toLocaleLowerCase().includes(term)
+    })
+    return matches.slice(0, 12)
+})
+
+function closeDescriptionSuggestions() {
+    if (descriptionSuggestionsOpen.value) {
+        window.electronAPI.closeDescriptionSuggestions()
+        descriptionSuggestionsOpen.value = false
+    }
+    activeDescriptionSuggestionIndex.value = -1
+}
+
+function syncDescriptionSuggestions(forceOpen = false) {
+    if (!isEditingDescription.value || filteredDescriptionSuggestions.value.length === 0) {
+        closeDescriptionSuggestions()
+        return
+    }
+
+    if (activeDescriptionSuggestionIndex.value >= filteredDescriptionSuggestions.value.length) {
+        activeDescriptionSuggestionIndex.value = -1
+    }
+
+    const data = {
+        suggestions: filteredDescriptionSuggestions.value,
+        activeIndex: activeDescriptionSuggestionIndex.value,
+    }
+
+    if (!descriptionSuggestionsOpen.value || forceOpen) {
+        window.electronAPI.openDescriptionSuggestions(data)
+        descriptionSuggestionsOpen.value = true
+    } else {
+        window.electronAPI.updateDescriptionSuggestions(data)
+    }
+}
 
 async function startDescriptionEdit() {
     if (!canEditEntry.value) return
     descriptionDraft.value = currentTimeEntry.value.description ?? ''
+    activeDescriptionSuggestionIndex.value = -1
     isEditingDescription.value = true
     await nextTick()
     descriptionInput.value?.focus()
     descriptionInput.value?.select()
+    syncDescriptionSuggestions(true)
 }
 
 function cancelDescriptionEdit() {
+    if (descriptionBlurTimer) {
+        clearTimeout(descriptionBlurTimer)
+        descriptionBlurTimer = null
+    }
+    closeDescriptionSuggestions()
     isEditingDescription.value = false
     descriptionDraft.value = ''
 }
@@ -169,15 +257,80 @@ async function updateCurrentEntry(changes: Partial<TimeEntry>) {
     }
 }
 
-async function saveDescription() {
+async function commitDescription(value: string) {
     if (!isEditingDescription.value) return
+    if (descriptionBlurTimer) {
+        clearTimeout(descriptionBlurTimer)
+        descriptionBlurTimer = null
+    }
+    closeDescriptionSuggestions()
     isEditingDescription.value = false
-    const description = descriptionDraft.value.trim()
+    const description = value.trim()
+    descriptionDraft.value = ''
     await updateCurrentEntry({ description: description || null })
+    void refetchDescriptionHistory()
+}
+
+async function saveDescription() {
+    await commitDescription(descriptionDraft.value)
+}
+
+function handleDescriptionKeydown(event: KeyboardEvent) {
+    const suggestions = filteredDescriptionSuggestions.value
+
+    if (event.key === 'ArrowDown' && suggestions.length > 0) {
+        event.preventDefault()
+        activeDescriptionSuggestionIndex.value =
+            activeDescriptionSuggestionIndex.value < suggestions.length - 1
+                ? activeDescriptionSuggestionIndex.value + 1
+                : 0
+        syncDescriptionSuggestions()
+        return
+    }
+
+    if (event.key === 'ArrowUp' && suggestions.length > 0) {
+        event.preventDefault()
+        activeDescriptionSuggestionIndex.value =
+            activeDescriptionSuggestionIndex.value > 0
+                ? activeDescriptionSuggestionIndex.value - 1
+                : suggestions.length - 1
+        syncDescriptionSuggestions()
+        return
+    }
+
+    if (event.key === 'Enter') {
+        event.preventDefault()
+        const selected = suggestions[activeDescriptionSuggestionIndex.value]
+        void commitDescription(selected ?? descriptionDraft.value)
+        return
+    }
+
+    if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelDescriptionEdit()
+    }
+}
+
+function handleDescriptionBlur() {
+    if (descriptionBlurTimer) {
+        clearTimeout(descriptionBlurTimer)
+    }
+    descriptionBlurTimer = setTimeout(() => {
+        descriptionBlurTimer = null
+        if (isEditingDescription.value) {
+            void saveDescription()
+        }
+    }, 120)
 }
 
 function openProjectTaskPicker() {
     if (!canEditEntry.value) return
+
+    if (isEditingDescription.value) {
+        void saveDescription()
+    } else {
+        closeDescriptionSuggestions()
+    }
 
     window.electronAPI.openProjectTaskPicker({
         projects: (projects.value ?? []).map((project) => ({
@@ -196,6 +349,7 @@ function openProjectTaskPicker() {
 }
 
 let removeProjectTaskPickerSelectionListener: (() => void) | null = null
+let removeDescriptionSuggestionSelectionListener: (() => void) | null = null
 
 onMounted(() => {
     removeProjectTaskPickerSelectionListener = window.electronAPI.onProjectTaskPickerSelection(
@@ -227,16 +381,45 @@ onMounted(() => {
             })
         }
     )
+
+    removeDescriptionSuggestionSelectionListener =
+        window.electronAPI.onDescriptionSuggestionSelection((description) => {
+            if (!isEditingDescription.value || !canEditEntry.value) return
+            if (descriptionBlurTimer) {
+                clearTimeout(descriptionBlurTimer)
+                descriptionBlurTimer = null
+            }
+            descriptionDraft.value = description
+            void commitDescription(description)
+        })
+})
+
+watch(descriptionDraft, () => {
+    if (!isEditingDescription.value) return
+    activeDescriptionSuggestionIndex.value = -1
+    syncDescriptionSuggestions()
+})
+
+watch(isRunning, (running) => {
+    if (!running) {
+        cancelDescriptionEdit()
+    }
 })
 
 onBeforeUnmount(() => {
+    if (descriptionBlurTimer) {
+        clearTimeout(descriptionBlurTimer)
+        descriptionBlurTimer = null
+    }
+    closeDescriptionSuggestions()
     removeProjectTaskPickerSelectionListener?.()
+    removeDescriptionSuggestionSelectionListener?.()
 })
 </script>
 
 <template>
     <div
-        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[16px] py-1 flex items-center cursor-default justify-between select-none">
+        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[20px] py-1 flex items-center cursor-default justify-between select-none">
         <div
             class="flex items-center relative min-w-0"
             :class="isOnBreak ? 'shrink-0' : 'flex-1'">
@@ -269,11 +452,11 @@ onBeforeUnmount(() => {
                         ref="descriptionInput"
                         v-model="descriptionDraft"
                         type="text"
+                        autocomplete="off"
                         class="h-[18px] w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium text-black outline-none ring-0 focus:ring-0"
                         style="-webkit-app-region: no-drag"
-                        @keydown.enter.prevent="saveDescription"
-                        @keydown.esc.prevent="cancelDescriptionEdit"
-                        @blur="saveDescription" />
+                        @keydown="handleDescriptionKeydown"
+                        @blur="handleDescriptionBlur" />
                     <button
                         v-else
                         type="button"
@@ -310,7 +493,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-            class="pr-1 flex items-center space-x-1 min-w-0"
+            class="pr-2.5 flex items-center space-x-1 min-w-0"
             :class="isOnBreak ? 'flex-1 justify-end pl-2' : ''">
             <button
                 v-if="canResumeAfterBreak"

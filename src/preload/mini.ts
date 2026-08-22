@@ -34,6 +34,25 @@ if (process.contextIsolated) {
             selectProjectTask: (selection: unknown) =>
                 ipcRenderer.send('projectTaskPickerSelect', selection),
             closeProjectTaskPicker: () => ipcRenderer.send('closeProjectTaskPicker'),
+            openDescriptionSuggestions: (data: unknown) =>
+                ipcRenderer.send('openDescriptionSuggestions', data),
+            updateDescriptionSuggestions: (data: unknown) =>
+                ipcRenderer.send('updateDescriptionSuggestions', data),
+            onDescriptionSuggestionSelection: (callback: (description: string) => void) => {
+                const listener = (_event: Electron.IpcRendererEvent, description: string) =>
+                    callback(description)
+                ipcRenderer.on('descriptionSuggestionSelection', listener)
+                return () =>
+                    ipcRenderer.removeListener('descriptionSuggestionSelection', listener)
+            },
+            onDescriptionSuggestionsData: (callback: (data: unknown) => void) => {
+                const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
+                ipcRenderer.on('descriptionSuggestionsData', listener)
+                return () => ipcRenderer.removeListener('descriptionSuggestionsData', listener)
+            },
+            selectDescriptionSuggestion: (description: string) =>
+                ipcRenderer.send('descriptionSuggestionSelect', description),
+            closeDescriptionSuggestions: () => ipcRenderer.send('closeDescriptionSuggestions'),
         })
     } catch (error) {
         console.error(error)

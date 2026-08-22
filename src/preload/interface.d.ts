@@ -54,6 +54,11 @@ export interface ProjectTaskPickerSelection {
     taskId: string | null
 }
 
+export interface DescriptionSuggestionsData {
+    suggestions: string[]
+    activeIndex: number
+}
+
 export interface IElectronAPI {
     loadPreferences: () => Promise<void>
     showMainWindow: () => void
@@ -116,6 +121,14 @@ export interface IElectronAPI {
     onProjectTaskPickerData: (callback: (data: ProjectTaskPickerData) => void) => () => void
     selectProjectTask: (selection: ProjectTaskPickerSelection) => void
     closeProjectTaskPicker: () => void
+    openDescriptionSuggestions: (data: DescriptionSuggestionsData) => void
+    updateDescriptionSuggestions: (data: DescriptionSuggestionsData) => void
+    onDescriptionSuggestionSelection: (callback: (description: string) => void) => () => void
+    onDescriptionSuggestionsData: (
+        callback: (data: DescriptionSuggestionsData) => void
+    ) => () => void
+    selectDescriptionSuggestion: (description: string) => void
+    closeDescriptionSuggestions: () => void
 }
 
 declare global {

@@ -8,6 +8,10 @@ const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
 const PROJECT_TASK_PICKER_WIDTH = 420
 const PROJECT_TASK_PICKER_HEIGHT = 520
 const PROJECT_TASK_PICKER_GAP = 8
+const DESCRIPTION_SUGGESTIONS_WIDTH = 320
+const DESCRIPTION_SUGGESTIONS_HEIGHT = 260
+const DESCRIPTION_SUGGESTIONS_GAP = 6
+const DESCRIPTION_SUGGESTIONS_X_OFFSET = 34
 
 interface ProjectTaskPickerProject {
     id: string
@@ -33,13 +37,26 @@ interface ProjectTaskPickerSelection {
     taskId: string | null
 }
 
+interface DescriptionSuggestionsData {
+    suggestions: string[]
+    activeIndex: number
+}
+
 let projectTaskPickerWindow: BrowserWindow | null = null
+let descriptionSuggestionsWindow: BrowserWindow | null = null
 
 function closeProjectTaskPicker() {
     if (projectTaskPickerWindow && !projectTaskPickerWindow.isDestroyed()) {
         projectTaskPickerWindow.close()
     }
     projectTaskPickerWindow = null
+}
+
+function closeDescriptionSuggestions() {
+    if (descriptionSuggestionsWindow && !descriptionSuggestionsWindow.isDestroyed()) {
+        descriptionSuggestionsWindow.close()
+    }
+    descriptionSuggestionsWindow = null
 }
 
 function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
@@ -62,7 +79,28 @@ function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
     return { x, y, width: PROJECT_TASK_PICKER_WIDTH, height }
 }
 
+function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow) {
+    const miniBounds = miniWindow.getBounds()
+    const display = screen.getDisplayMatching(miniBounds)
+    const workArea = display.workArea
+    const height = Math.min(DESCRIPTION_SUGGESTIONS_HEIGHT, Math.max(140, workArea.height - 24))
+
+    let x = miniBounds.x + DESCRIPTION_SUGGESTIONS_X_OFFSET
+    if (x + DESCRIPTION_SUGGESTIONS_WIDTH > workArea.x + workArea.width) {
+        x = workArea.x + workArea.width - DESCRIPTION_SUGGESTIONS_WIDTH
+    }
+    x = Math.max(workArea.x, x)
+
+    const belowY = miniBounds.y + miniBounds.height + DESCRIPTION_SUGGESTIONS_GAP
+    const aboveY = miniBounds.y - height - DESCRIPTION_SUGGESTIONS_GAP
+    const fitsBelow = belowY + height <= workArea.y + workArea.height
+    const y = fitsBelow ? belowY : Math.max(workArea.y, aboveY)
+
+    return { x, y, width: DESCRIPTION_SUGGESTIONS_WIDTH, height }
+}
+
 function openProjectTaskPicker(miniWindow: BrowserWindow, data: ProjectTaskPickerData) {
+    closeDescriptionSuggestions()
     closeProjectTaskPicker()
 
     const pickerWindow = new BrowserWindow({
@@ -107,6 +145,60 @@ function openProjectTaskPicker(miniWindow: BrowserWindow, data: ProjectTaskPicke
     } else {
         void pickerWindow.loadFile(join(__dirname, '../renderer/index-project-task-picker.html'))
     }
+}
+
+function openDescriptionSuggestions(
+    miniWindow: BrowserWindow,
+    data: DescriptionSuggestionsData
+) {
+    closeProjectTaskPicker()
+    closeDescriptionSuggestions()
+
+    const suggestionsWindow = new BrowserWindow({
+        ...getDescriptionSuggestionsBounds(miniWindow),
+        show: false,
+        frame: false,
+        resizable: false,
+        transparent: true,
+        hasShadow: true,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        focusable: false,
+        parent: miniWindow,
+        webPreferences: {
+            preload: join(__dirname, '../preload/mini.mjs'),
+            sandbox: false,
+        },
+    })
+
+    descriptionSuggestionsWindow = suggestionsWindow
+    suggestionsWindow.setAutoHideMenuBar(true)
+    suggestionsWindow.once('closed', () => {
+        if (descriptionSuggestionsWindow === suggestionsWindow) {
+            descriptionSuggestionsWindow = null
+        }
+    })
+
+    suggestionsWindow.webContents.once('did-finish-load', () => {
+        if (suggestionsWindow.isDestroyed()) return
+        suggestionsWindow.webContents.send('descriptionSuggestionsData', data)
+        suggestionsWindow.showInactive()
+    })
+
+    if (process.env['ELECTRON_RENDERER_URL']) {
+        void suggestionsWindow.loadURL(
+            `${process.env['ELECTRON_RENDERER_URL']}/index-description-suggestions.html`
+        )
+    } else {
+        void suggestionsWindow.loadFile(
+            join(__dirname, '../renderer/index-description-suggestions.html')
+        )
+    }
+}
+
+function updateDescriptionSuggestions(data: DescriptionSuggestionsData) {
+    if (!descriptionSuggestionsWindow || descriptionSuggestionsWindow.isDestroyed()) return
+    descriptionSuggestionsWindow.webContents.send('descriptionSuggestionsData', data)
 }
 
 export function initializeMiniWindow(icon: string) {
@@ -208,16 +300,19 @@ export function initializeMiniWindow(icon: string) {
 
     miniWindow.on('move', () => {
         closeProjectTaskPicker()
+        closeDescriptionSuggestions()
         scheduleDisplayMetricsApply()
     })
 
     const handleDisplayMetricsChanged = () => {
         closeProjectTaskPicker()
+        closeDescriptionSuggestions()
         scheduleDisplayMetricsApply()
     }
     screen.on('display-metrics-changed', handleDisplayMetricsChanged)
     miniWindow.on('closed', () => {
         closeProjectTaskPicker()
+        closeDescriptionSuggestions()
         if (displayMetricsSettleTimer) {
             clearTimeout(displayMetricsSettleTimer)
             displayMetricsSettleTimer = null
@@ -237,6 +332,7 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
     })
     ipcMain.on('hideMiniWindow', () => {
         closeProjectTaskPicker()
+        closeDescriptionSuggestions()
         miniWindow.hide()
     })
     ipcMain.on('openProjectTaskPicker', (event, data: ProjectTaskPickerData) => {
@@ -252,10 +348,41 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
         if (!projectTaskPickerWindow || event.sender !== projectTaskPickerWindow.webContents) return
         closeProjectTaskPicker()
     })
+    ipcMain.on('openDescriptionSuggestions', (event, data: DescriptionSuggestionsData) => {
+        if (event.sender !== miniWindow.webContents || isE2ETesting()) return
+        openDescriptionSuggestions(miniWindow, data)
+    })
+    ipcMain.on('updateDescriptionSuggestions', (event, data: DescriptionSuggestionsData) => {
+        if (event.sender !== miniWindow.webContents || isE2ETesting()) return
+        updateDescriptionSuggestions(data)
+    })
+    ipcMain.on('descriptionSuggestionSelect', (event, description: string) => {
+        if (
+            !descriptionSuggestionsWindow ||
+            event.sender !== descriptionSuggestionsWindow.webContents
+        ) {
+            return
+        }
+        miniWindow.webContents.send('descriptionSuggestionSelection', description)
+        closeDescriptionSuggestions()
+    })
+    ipcMain.on('closeDescriptionSuggestions', (event) => {
+        if (event.sender === miniWindow.webContents) {
+            closeDescriptionSuggestions()
+            return
+        }
+        if (
+            descriptionSuggestionsWindow &&
+            event.sender === descriptionSuggestionsWindow.webContents
+        ) {
+            closeDescriptionSuggestions()
+        }
+    })
 
     let forcequit = false
     miniWindow.on('close', (event) => {
         closeProjectTaskPicker()
+        closeDescriptionSuggestions()
         if (process.platform === 'darwin') {
             if (forcequit === false) {
                 event.preventDefault()
