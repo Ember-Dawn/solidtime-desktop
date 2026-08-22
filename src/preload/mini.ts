@@ -12,7 +12,8 @@ if (process.contextIsolated) {
         contextBridge.exposeInMainWorld('electron', electronAPI)
         contextBridge.exposeInMainWorld('api', api)
         contextBridge.exposeInMainWorld('electronAPI', {
-            startTimer: () => ipcRenderer.send('startTimer'),
+            startTimer: (startBlank: boolean = false) =>
+                ipcRenderer.send('startTimer', startBlank),
             stopTimer: () => ipcRenderer.send('stopTimer'),
             startBreak: () => ipcRenderer.send('startBreak'),
             resumeAfterBreak: () => ipcRenderer.send('resumeAfterBreak'),

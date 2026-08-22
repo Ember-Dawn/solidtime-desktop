@@ -127,8 +127,8 @@ function openDevAuthWindow(url: string, mainWindow: BrowserWindow): void {
 }
 
 export function registerMainWindowListeners(mainWindow: BrowserWindow) {
-    ipcMain.on('startTimer', () => {
-        mainWindow.webContents.send('startTimer')
+    ipcMain.on('startTimer', (_event, startBlank: boolean = false) => {
+        mainWindow.webContents.send('startTimer', startBlank)
     })
     ipcMain.on('stopTimer', () => {
         mainWindow.webContents.send('stopTimer')

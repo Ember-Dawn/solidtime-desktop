@@ -78,13 +78,13 @@ export interface IElectronAPI {
     onUpdateDownloaded: (callback: () => void) => void
     onUpdateNotAvailable: (callback: () => void) => void
     installUpdate: () => void
-    startTimer: () => void
+    startTimer: (startBlank?: boolean) => void
     stopTimer: () => void
     startBreak: () => void
     resumeAfterBreak: () => void
     onOpenDeeplink: (callback: (url: string) => Promise<void>) => void
     onAutoUpdaterError: (callback: (error: string | undefined) => Promise<void>) => void
-    onStartTimer: (callback: () => void) => void
+    onStartTimer: (callback: (startBlank?: boolean) => void) => void
     onStopTimer: (callback: () => void) => void
     onStartBreak: (callback: () => void) => void
     onResumeAfterBreak: (callback: () => void) => void

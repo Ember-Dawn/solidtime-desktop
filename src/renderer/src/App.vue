@@ -43,8 +43,15 @@ provide('organization', organization)
 const queryClient = useQueryClient()
 
 // Use the timer composable for shared timer logic
-const { stopTimer, continueLastTimer, isActive, lastTimeEntry, startBreak, resumeWorkAfterBreak } =
-    useTimer()
+const {
+    stopTimer,
+    startTimer,
+    continueLastTimer,
+    isActive,
+    lastTimeEntry,
+    startBreak,
+    resumeWorkAfterBreak,
+} = useTimer()
 
 // Live timer for bottom row display
 const { liveTimer, startLiveTimer, stopLiveTimer } = useLiveTimer()
@@ -114,9 +121,15 @@ onMounted(async () => {
     // Initialize settings from database
     await initializeSettings()
 
-    // Listen for timer events from mini window / tray
-    await listenForBackendEvent('startTimer', () => {
-        continueLastTimer()
+    // The tray's Continue action resumes the last entry, while the widget's
+    // ordinary Start action explicitly requests a new blank work entry.
+    window.electronAPI.onStartTimer((startBlank) => {
+        if (startBlank) {
+            currentTimeEntry.value = { ...emptyTimeEntry }
+            startTimer()
+        } else {
+            continueLastTimer()
+        }
     })
     await listenForBackendEvent('stopTimer', () => {
         stopTimer()

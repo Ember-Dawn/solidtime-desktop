@@ -176,9 +176,8 @@ function focusMainWindow() {
 
 function onToggleButtonPress(newState: boolean) {
     if (newState) {
-        sendEventToWindow('main', 'startTimer')
+        window.electronAPI.startTimer(true)
     } else {
-        showMainWindow()
         sendEventToWindow('main', 'stopTimer')
     }
 }
