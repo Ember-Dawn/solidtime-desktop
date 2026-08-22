@@ -54,8 +54,17 @@ export interface ProjectTaskPickerSelection {
     taskId: string | null
 }
 
+export interface DescriptionSuggestion {
+    description: string | null
+    projectId: string | null
+    taskId: string | null
+    projectName: string | null
+    projectColor: string | null
+    taskName: string | null
+}
+
 export interface DescriptionSuggestionsData {
-    suggestions: string[]
+    suggestions: DescriptionSuggestion[]
     activeIndex: number
 }
 
@@ -123,11 +132,13 @@ export interface IElectronAPI {
     closeProjectTaskPicker: () => void
     openDescriptionSuggestions: (data: DescriptionSuggestionsData) => void
     updateDescriptionSuggestions: (data: DescriptionSuggestionsData) => void
-    onDescriptionSuggestionSelection: (callback: (description: string) => void) => () => void
+    onDescriptionSuggestionSelection: (
+        callback: (suggestion: DescriptionSuggestion) => void
+    ) => () => void
     onDescriptionSuggestionsData: (
         callback: (data: DescriptionSuggestionsData) => void
     ) => () => void
-    selectDescriptionSuggestion: (description: string) => void
+    selectDescriptionSuggestion: (suggestion: DescriptionSuggestion) => void
     closeDescriptionSuggestions: () => void
 }
 

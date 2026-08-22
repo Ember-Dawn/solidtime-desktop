@@ -4,13 +4,12 @@ import { isE2ETesting } from './env'
 
 const MINI_WINDOW_WIDTH = 420
 const MINI_WINDOW_HEIGHT = 52
-const MINI_WINDOW_RADIUS = 20
 const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
 const PROJECT_TASK_PICKER_WIDTH = 420
 const PROJECT_TASK_PICKER_HEIGHT = 520
 const PROJECT_TASK_PICKER_GAP = 8
-const DESCRIPTION_SUGGESTIONS_WIDTH = 320
-const DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT = 42
+const DESCRIPTION_SUGGESTIONS_WIDTH = 420
+const DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT = 48
 const DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING = 12
 const DESCRIPTION_SUGGESTIONS_MAX_HEIGHT = 348
 const DESCRIPTION_SUGGESTIONS_GAP = 6
@@ -40,8 +39,17 @@ interface ProjectTaskPickerSelection {
     taskId: string | null
 }
 
+interface DescriptionSuggestion {
+    description: string | null
+    projectId: string | null
+    taskId: string | null
+    projectName: string | null
+    projectColor: string | null
+    taskName: string | null
+}
+
 interface DescriptionSuggestionsData {
-    suggestions: string[]
+    suggestions: DescriptionSuggestion[]
     activeIndex: number
 }
 
@@ -60,32 +68,6 @@ function closeDescriptionSuggestions() {
         descriptionSuggestionsWindow.close()
     }
     descriptionSuggestionsWindow = null
-}
-
-function createRoundedWindowShape(width: number, height: number, radius: number) {
-    const safeRadius = Math.min(radius, Math.floor(width / 2), Math.floor(height / 2))
-    const shape: { x: number; y: number; width: number; height: number }[] = []
-
-    for (let y = 0; y < height; y += 1) {
-        const distanceFromEdge = Math.min(y + 0.5, height - y - 0.5)
-        let inset = 0
-
-        if (distanceFromEdge < safeRadius) {
-            const dy = safeRadius - distanceFromEdge
-            inset = Math.ceil(
-                safeRadius - Math.sqrt(Math.max(0, safeRadius * safeRadius - dy * dy))
-            )
-        }
-
-        shape.push({
-            x: inset,
-            y,
-            width: Math.max(1, width - inset * 2),
-            height: 1,
-        })
-    }
-
-    return shape
 }
 
 function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
@@ -301,16 +283,12 @@ export function initializeMiniWindow(icon: string) {
         )
 
         // Windows shaped frameless windows can keep stale geometry after a
-        // mixed-DPI transition. Re-apply a rounded shape so the native window
-        // clips to the same radius as the renderer instead of a full rectangle.
+        // mixed-DPI transition. Re-apply the original rectangular shape so
+        // the widget keeps its default square-corner appearance.
         if (process.platform === 'win32') {
-            miniWindow.setShape(
-                createRoundedWindowShape(
-                    MINI_WINDOW_WIDTH,
-                    MINI_WINDOW_HEIGHT,
-                    MINI_WINDOW_RADIUS
-                )
-            )
+            miniWindow.setShape([
+                { x: 0, y: 0, width: MINI_WINDOW_WIDTH, height: MINI_WINDOW_HEIGHT },
+            ])
         }
     }
 
@@ -406,14 +384,14 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
         if (event.sender !== miniWindow.webContents || isE2ETesting()) return
         updateDescriptionSuggestions(miniWindow, data)
     })
-    ipcMain.on('descriptionSuggestionSelect', (event, description: string) => {
+    ipcMain.on('descriptionSuggestionSelect', (event, suggestion: DescriptionSuggestion) => {
         if (
             !descriptionSuggestionsWindow ||
             event.sender !== descriptionSuggestionsWindow.webContents
         ) {
             return
         }
-        miniWindow.webContents.send('descriptionSuggestionSelection', description)
+        miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
         closeDescriptionSuggestions()
     })
     ipcMain.on('closeDescriptionSuggestions', (event) => {

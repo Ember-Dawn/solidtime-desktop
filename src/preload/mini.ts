@@ -38,9 +38,9 @@ if (process.contextIsolated) {
                 ipcRenderer.send('openDescriptionSuggestions', data),
             updateDescriptionSuggestions: (data: unknown) =>
                 ipcRenderer.send('updateDescriptionSuggestions', data),
-            onDescriptionSuggestionSelection: (callback: (description: string) => void) => {
-                const listener = (_event: Electron.IpcRendererEvent, description: string) =>
-                    callback(description)
+            onDescriptionSuggestionSelection: (callback: (suggestion: unknown) => void) => {
+                const listener = (_event: Electron.IpcRendererEvent, suggestion: unknown) =>
+                    callback(suggestion)
                 ipcRenderer.on('descriptionSuggestionSelection', listener)
                 return () =>
                     ipcRenderer.removeListener('descriptionSuggestionSelection', listener)
@@ -50,8 +50,8 @@ if (process.contextIsolated) {
                 ipcRenderer.on('descriptionSuggestionsData', listener)
                 return () => ipcRenderer.removeListener('descriptionSuggestionsData', listener)
             },
-            selectDescriptionSuggestion: (description: string) =>
-                ipcRenderer.send('descriptionSuggestionSelect', description),
+            selectDescriptionSuggestion: (suggestion: unknown) =>
+                ipcRenderer.send('descriptionSuggestionSelect', suggestion),
             closeDescriptionSuggestions: () => ipcRenderer.send('closeDescriptionSuggestions'),
         })
     } catch (error) {

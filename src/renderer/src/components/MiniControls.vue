@@ -22,6 +22,15 @@ import { projectSortOrder, sortNamedItems, taskSortOrder } from '../utils/listSo
 import type { TimeEntry } from '@solidtime/api'
 const { liveTimer, startLiveTimer, stopLiveTimer } = useLiveTimer()
 
+interface DescriptionSuggestion {
+    description: string | null
+    projectId: string | null
+    taskId: string | null
+    projectName: string | null
+    projectColor: string | null
+    taskName: string | null
+}
+
 const { currentOrganizationId, memberships } = useMyMemberships()
 const currentTimeEntry = useStorage('currentTimeEntry', { ...emptyTimeEntry })
 const lastTimeEntry = useStorage('lastTimeEntry', { ...emptyTimeEntry })
@@ -166,19 +175,40 @@ const descriptionSuggestionsOpen = ref(false)
 const descriptionHasUserInput = ref(false)
 let descriptionBlurTimer: ReturnType<typeof setTimeout> | null = null
 
-const recentDescriptions = computed(() => {
+const recentDescriptionSuggestions = computed<DescriptionSuggestion[]>(() => {
     const entries = descriptionHistoryResponse.value?.data ?? []
     const unique = new Set<string>()
-    const descriptions: string[] = []
+    const suggestions: DescriptionSuggestion[] = []
 
     for (const entry of entries) {
-        const description = entry.description?.trim()
-        if (!description || unique.has(description)) continue
-        unique.add(description)
-        descriptions.push(description)
+        const description = entry.description?.trim() || null
+        const historicalTask = entry.task_id
+            ? tasks.value?.find((task) => task.id === entry.task_id)
+            : undefined
+        const projectId = historicalTask?.project_id ?? entry.project_id ?? null
+        const historicalProject = projectId
+            ? projects.value?.find((project) => project.id === projectId)
+            : undefined
+        const resolvedProjectId = historicalProject?.id ?? null
+        const taskId =
+            historicalTask && resolvedProjectId && historicalTask.project_id === resolvedProjectId
+                ? historicalTask.id
+                : null
+        const key = `${description ?? ''}\u0000${resolvedProjectId ?? ''}\u0000${taskId ?? ''}`
+
+        if (unique.has(key)) continue
+        unique.add(key)
+        suggestions.push({
+            description,
+            projectId: resolvedProjectId,
+            taskId,
+            projectName: historicalProject?.name ?? null,
+            projectColor: historicalProject?.color ?? null,
+            taskName: taskId ? (historicalTask?.name ?? null) : null,
+        })
     }
 
-    return descriptions
+    return suggestions
 })
 
 const filteredDescriptionSuggestions = computed(() => {
@@ -187,8 +217,10 @@ const filteredDescriptionSuggestions = computed(() => {
     const term = descriptionDraft.value.trim().toLocaleLowerCase()
     if (!term) return []
 
-    return recentDescriptions.value
-        .filter((description) => description.toLocaleLowerCase().includes(term))
+    return recentDescriptionSuggestions.value
+        .filter((suggestion) =>
+            (suggestion.description ?? 'No Description').toLocaleLowerCase().includes(term)
+        )
         .slice(0, 12)
 })
 
@@ -281,6 +313,24 @@ async function saveDescription() {
     await commitDescription(descriptionDraft.value)
 }
 
+async function commitDescriptionSuggestion(suggestion: DescriptionSuggestion) {
+    if (!isEditingDescription.value) return
+    if (descriptionBlurTimer) {
+        clearTimeout(descriptionBlurTimer)
+        descriptionBlurTimer = null
+    }
+    closeDescriptionSuggestions()
+    isEditingDescription.value = false
+    descriptionHasUserInput.value = false
+    descriptionDraft.value = ''
+    await updateCurrentEntry({
+        description: suggestion.description,
+        project_id: suggestion.projectId,
+        task_id: suggestion.taskId,
+    })
+    void refetchDescriptionHistory()
+}
+
 function handleDescriptionInput() {
     if (!isEditingDescription.value) return
     descriptionHasUserInput.value = true
@@ -314,7 +364,11 @@ function handleDescriptionKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter') {
         event.preventDefault()
         const selected = suggestions[activeDescriptionSuggestionIndex.value]
-        void commitDescription(selected ?? descriptionDraft.value)
+        if (selected) {
+            void commitDescriptionSuggestion(selected)
+        } else {
+            void commitDescription(descriptionDraft.value)
+        }
         return
     }
 
@@ -396,14 +450,14 @@ onMounted(() => {
     )
 
     removeDescriptionSuggestionSelectionListener =
-        window.electronAPI.onDescriptionSuggestionSelection((description) => {
+        window.electronAPI.onDescriptionSuggestionSelection((suggestion) => {
             if (!isEditingDescription.value || !canEditEntry.value) return
             if (descriptionBlurTimer) {
                 clearTimeout(descriptionBlurTimer)
                 descriptionBlurTimer = null
             }
-            descriptionDraft.value = description
-            void commitDescription(description)
+            descriptionDraft.value = suggestion.description ?? ''
+            void commitDescriptionSuggestion(suggestion)
         })
 })
 
@@ -426,7 +480,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div
-        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[20px] py-1 flex items-center cursor-default justify-between select-none overflow-hidden">
+        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-none py-1 flex items-center cursor-default justify-between select-none overflow-hidden">
         <div
             class="flex items-center relative min-w-0"
             :class="isOnBreak ? 'shrink-0' : 'flex-1'">
