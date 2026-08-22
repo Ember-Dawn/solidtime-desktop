@@ -162,7 +162,9 @@ const currentTimer = computed(() => {
                     <span>On break</span>
                 </div>
                 <div v-else class="flex flex-col flex-1 min-w-0 leading-tight">
-                    <div class="truncate text-sm font-medium text-black">
+                    <div
+                        class="truncate text-sm font-medium"
+                        :class="shownDescription ? 'text-black' : 'text-text-tertiary'">
                         {{ shownDescription ?? 'No Description' }}
                     </div>
                     <div class="flex items-center min-w-0 text-sm text-black">
@@ -195,7 +197,7 @@ const currentTimer = computed(() => {
                 }}</span>
             </button>
             <div
-                class="text-sm font-semibold text-black px-2 w-[72px] shrink-0 text-left"
+                class="text-base font-semibold text-black px-2 w-[82px] shrink-0 text-left"
                 style="-webkit-app-region: drag">
                 {{ currentTimer }}
             </div>
@@ -204,12 +206,12 @@ const currentTimer = computed(() => {
                 type="button"
                 title="Take a break"
                 aria-label="Take a break"
-                class="flex items-center justify-center w-7 h-7 shrink-0 rounded-full bg-quaternary text-text-tertiary hover:text-amber-500 focus:ring-2 focus:ring-border-tertiary transition"
+                class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-quaternary text-text-tertiary hover:text-amber-500 focus:ring-2 focus:ring-border-tertiary transition"
                 @click="startBreak">
-                <Coffee class="w-4 h-4" />
+                <Coffee class="w-[18px] h-[18px]" />
             </button>
             <TimeTrackerStartStop
-                class="shrink-0"
+                class="shrink-0 scale-110 mx-0.5"
                 :active="isRunning"
                 :variant="isOnBreak ? 'break' : 'primary'"
                 size="small"
