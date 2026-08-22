@@ -37,7 +37,7 @@ import { LoadingSpinner } from '@solidtime/ui'
 import { useLiveTimer } from '../utils/liveTimer.ts'
 import { ArrowPathIcon, ClockIcon } from '@heroicons/vue/20/solid'
 import { CardTitle } from '@solidtime/ui'
-import { useElementVisibility } from '@vueuse/core'
+import { useElementVisibility, useEventListener } from '@vueuse/core'
 import { currentMembershipId, useMyMemberships } from '../utils/myMemberships.ts'
 import { getAllClients, useClientCreateMutation } from '../utils/clients.ts'
 import { dayjs } from '../utils/dayjs.ts'
@@ -116,6 +116,21 @@ async function syncServerData() {
         isSyncing.value = false
     }
 }
+
+function handleSyncShortcut(event: KeyboardEvent) {
+    if (
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'r'
+    ) {
+        event.preventDefault()
+        void syncServerData()
+    }
+}
+
+useEventListener(window, 'keydown', handleSyncShortcut)
 
 const {
     data: timeEntriesInfiniteData,
@@ -445,10 +460,10 @@ watch(isLoadMoreVisible, async (isVisible) => {
                 <div class="flex justify-center items-center pt-9 group pr-4 space-x-1">
                     <button
                         type="button"
-                        title="Sync now"
+                        title="Sync now (Ctrl+R)"
                         aria-label="Sync now"
                         :disabled="isSyncing"
-                        class="fixed top-1 right-[142px] z-50 flex h-8 w-8 items-center justify-center rounded-md text-text-tertiary transition hover:bg-quaternary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                        class="fixed top-0 right-[138px] z-50 flex h-10 w-10 items-center justify-center rounded-md text-text-tertiary transition hover:bg-quaternary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
                         style="-webkit-app-region: no-drag"
                         @click="syncServerData">
                         <ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />

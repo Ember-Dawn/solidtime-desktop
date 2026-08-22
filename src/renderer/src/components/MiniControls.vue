@@ -8,10 +8,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect
 import { useStorage } from '@vueuse/core'
 import {
     emptyTimeEntry,
+    getCurrentTimeEntry,
     getTimeEntriesPage,
     useCurrentTimeEntryUpdateMutation,
 } from '../utils/timeEntries'
-import { useQuery } from '@tanstack/vue-query'
+import { useIsMutating, useQuery } from '@tanstack/vue-query'
 import { getAllProjects } from '../utils/projects'
 import { getAllTasks } from '../utils/tasks'
 import { sendEventToWindow } from '../utils/events'
@@ -35,6 +36,38 @@ const { currentOrganizationId, memberships } = useMyMemberships()
 const currentTimeEntry = useStorage('currentTimeEntry', { ...emptyTimeEntry })
 const lastTimeEntry = useStorage('lastTimeEntry', { ...emptyTimeEntry })
 const currentTimeEntryUpdateMutation = useCurrentTimeEntryUpdateMutation()
+const pendingTimeEntryMutations = useIsMutating({
+    predicate: (mutation) => mutation.options.scope?.id === 'timeEntry',
+})
+
+const {
+    data: currentTimeEntryResponse,
+    isError: currentTimeEntryResponseIsError,
+    dataUpdatedAt: currentTimeEntryUpdatedAt,
+    errorUpdatedAt: currentTimeEntryErrorUpdatedAt,
+} = useQuery({
+    queryKey: ['currentTimeEntry'],
+    queryFn: () => getCurrentTimeEntry(),
+    staleTime: 0,
+    enabled: computed(() => pendingTimeEntryMutations.value === 0),
+})
+
+function reconcileCurrentTimeEntry() {
+    if (currentTimeEntryResponseIsError.value) {
+        if (currentTimeEntry.value.id !== '') {
+            currentTimeEntry.value = { ...emptyTimeEntry }
+        }
+        return
+    }
+
+    if (currentTimeEntryResponse.value?.data) {
+        currentTimeEntry.value = { ...currentTimeEntryResponse.value.data }
+    } else if (currentTimeEntry.value.id !== '') {
+        currentTimeEntry.value = { ...emptyTimeEntry }
+    }
+}
+
+watch([currentTimeEntryUpdatedAt, currentTimeEntryErrorUpdatedAt], reconcileCurrentTimeEntry)
 
 const organizationIdToLoad = computed(() => {
     if (currentTimeEntry.value.organization_id && currentTimeEntry.value.organization_id !== '') {
