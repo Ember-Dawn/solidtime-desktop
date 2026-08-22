@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ChevronRightIcon } from '@heroicons/vue/16/solid'
 import { Coffee, Play } from '@lucide/vue'
-import { ProjectBadge, time, TimeTrackerStartStop } from '@solidtime/ui'
+import { time, TimeTrackerStartStop } from '@solidtime/ui'
 import { useLiveTimer } from '../utils/liveTimer'
 import { useMyMemberships } from '../utils/myMemberships'
 import { computed, watchEffect } from 'vue'
@@ -81,15 +81,9 @@ const projects = computed(() => {
 
 const shownDescription = computed(() => {
     if (isRunning.value) {
-        return currentTimeEntry.value.description !== ''
-            ? currentTimeEntry.value.description
-            : currentTask.value?.name
-    } else if (!isRunning.value) {
-        return lastTimeEntry.value.description !== ''
-            ? lastTimeEntry.value.description
-            : currentTask.value?.name
+        return currentTimeEntry.value.description || null
     }
-    return null
+    return lastTimeEntry.value.description || null
 })
 const currentTask = computed(() => {
     if (isRunning.value) {
@@ -139,13 +133,13 @@ const currentTimer = computed(() => {
 
 <template>
     <div
-        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[16px] text-white py-1 flex items-center cursor-default justify-between select-none">
+        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-[16px] py-1 flex items-center cursor-default justify-between select-none">
         <div
-            class="text-sm text-text-tertiary flex items-center relative min-w-0"
+            class="flex items-center relative min-w-0"
             :class="isOnBreak ? 'shrink-0' : 'flex-1'">
             <div class="pl-1 pr-1 z-20 relative block" style="-webkit-app-region: drag">
                 <svg
-                    class="h-5"
+                    class="h-6"
                     viewBox="0 0 25 25"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
@@ -159,31 +153,32 @@ const currentTimer = computed(() => {
                 </svg>
             </div>
             <div
-                class="cursor-pointer rounded-lg flex items-center shrink min-w-0"
+                class="cursor-pointer rounded-lg flex items-center shrink min-w-0 flex-1"
                 @click="focusMainWindow">
                 <div
                     v-if="isOnBreak"
-                    class="flex items-center shrink-0 space-x-1.5 text-xs font-medium whitespace-nowrap text-amber-600 dark:text-amber-400">
-                    <Coffee class="w-3.5 h-3.5 shrink-0" />
+                    class="flex items-center shrink-0 space-x-1.5 text-sm font-medium whitespace-nowrap text-amber-600 dark:text-amber-400">
+                    <Coffee class="w-4 h-4 shrink-0" />
                     <span>On break</span>
                 </div>
-                <div v-else class="flex items-center flex-1 space-x-0.5 min-w-0">
-                    <ProjectBadge
-                        class="px-0 whitespace-nowrap overflow-ellipsis"
-                        :border="false"
-                        :color="shownProject?.color"
-                        :name="shownProject?.name ?? 'No Project'"></ProjectBadge>
-                    <div class="flex text-xs flex-1 truncate items-center space-x-0.5 shrink">
-                        <ChevronRightIcon
-                            class="w-4 shrink-0 text-text-tertiary"></ChevronRightIcon>
+                <div v-else class="flex flex-col flex-1 min-w-0 leading-tight">
+                    <div class="truncate text-sm font-medium text-black">
+                        {{ shownDescription ?? 'No Description' }}
+                    </div>
+                    <div class="flex items-center min-w-0 text-sm text-black">
                         <span
-                            class="truncate shrink text-text-tertiary opacity-50 hover:opacity-100 transition-opacity min-w-0"
-                            >{{ shownDescription ?? 'No Description' }}</span
-                        >
+                            class="w-2.5 h-2.5 rounded-full shrink-0 mr-1.5"
+                            :style="{ backgroundColor: shownProject?.color ?? '#a1a1aa' }"></span>
+                        <span class="truncate shrink min-w-0">
+                            {{ shownProject?.name ?? 'No Project' }}
+                        </span>
+                        <template v-if="currentTask">
+                            <ChevronRightIcon class="w-4 shrink-0 mx-0.5 text-black"></ChevronRightIcon>
+                            <span class="truncate shrink min-w-0">{{ currentTask.name }}</span>
+                        </template>
                     </div>
                 </div>
             </div>
-            <div class="flex-1 h-6 w-full" style="-webkit-app-region: drag"></div>
         </div>
 
         <div
@@ -192,7 +187,7 @@ const currentTimer = computed(() => {
             <button
                 v-if="canResumeAfterBreak"
                 type="button"
-                class="flex min-w-0 shrink items-center gap-1 h-6 px-2 rounded-md bg-transparent border border-amber-500/40 hover:bg-amber-500/15 text-xs font-medium text-amber-600 dark:text-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition"
+                class="flex min-w-0 shrink items-center gap-1 h-7 px-2 rounded-md bg-transparent border border-amber-500/40 hover:bg-amber-500/15 text-xs font-medium text-amber-600 dark:text-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition"
                 @click="resumeAfterBreak">
                 <Play class="w-3 h-3 shrink-0" />
                 <span class="truncate">{{
@@ -200,7 +195,7 @@ const currentTimer = computed(() => {
                 }}</span>
             </button>
             <div
-                class="text-xs font-semibold text-text-tertiary px-2 w-[65px] shrink-0 text-left"
+                class="text-sm font-semibold text-black px-2 w-[72px] shrink-0 text-left"
                 style="-webkit-app-region: drag">
                 {{ currentTimer }}
             </div>
@@ -209,9 +204,9 @@ const currentTimer = computed(() => {
                 type="button"
                 title="Take a break"
                 aria-label="Take a break"
-                class="flex items-center justify-center w-6 h-6 shrink-0 rounded-full bg-quaternary text-text-tertiary hover:text-amber-500 focus:ring-2 focus:ring-border-tertiary transition"
+                class="flex items-center justify-center w-7 h-7 shrink-0 rounded-full bg-quaternary text-text-tertiary hover:text-amber-500 focus:ring-2 focus:ring-border-tertiary transition"
                 @click="startBreak">
-                <Coffee class="w-3.5 h-3.5" />
+                <Coffee class="w-4 h-4" />
             </button>
             <TimeTrackerStartStop
                 class="shrink-0"

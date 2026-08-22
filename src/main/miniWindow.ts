@@ -3,7 +3,7 @@ import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, ipcMain, screen }
 import { isE2ETesting } from './env'
 
 const MINI_WINDOW_WIDTH = 420
-const MINI_WINDOW_HEIGHT = 36
+const MINI_WINDOW_HEIGHT = 52
 const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
 
 export function initializeMiniWindow(icon: string) {
