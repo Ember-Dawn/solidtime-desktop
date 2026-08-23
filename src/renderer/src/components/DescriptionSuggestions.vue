@@ -20,6 +20,7 @@ interface DescriptionSuggestionsData {
 const suggestions = ref<DescriptionSuggestion[]>([])
 const activeIndex = ref(-1)
 let removeDataListener: (() => void) | null = null
+let removeActivationClickListener: (() => void) | null = null
 let selectionSent = false
 
 onMounted(() => {
@@ -29,6 +30,19 @@ onMounted(() => {
             suggestions.value = data.suggestions
             activeIndex.value = data.activeIndex
             selectionSent = false
+        }
+    )
+    removeActivationClickListener = window.electronAPI.onDescriptionSuggestionActivationClick(
+        ({ x, y }) => {
+            const target = document.elementFromPoint(x, y)
+            const button = target?.closest<HTMLButtonElement>('[data-suggestion-index]')
+            if (!button) return
+
+            const index = Number(button.dataset.suggestionIndex)
+            const suggestion = suggestions.value[index]
+            if (suggestion) {
+                chooseSuggestion(suggestion)
+            }
         }
     )
 })
@@ -41,6 +55,7 @@ function chooseSuggestion(suggestion: DescriptionSuggestion) {
 
 onBeforeUnmount(() => {
     removeDataListener?.()
+    removeActivationClickListener?.()
 })
 </script>
 
@@ -52,6 +67,7 @@ onBeforeUnmount(() => {
                     v-for="(suggestion, index) in suggestions"
                     :key="`${suggestion.description ?? ''}:${suggestion.projectId ?? ''}:${suggestion.taskId ?? ''}`"
                     type="button"
+                    :data-suggestion-index="index"
                     class="w-full min-w-0 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5"
                     :class="index === activeIndex ? 'bg-black/[0.07] dark:bg-white/[0.07]' : ''"
                     @mousedown.left.prevent="chooseSuggestion(suggestion)"

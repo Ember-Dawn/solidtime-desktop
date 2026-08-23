@@ -126,7 +126,7 @@ Project > Task
 - 只有用户真正输入内容后才显示建议，不是单纯 focus 就弹出；
 - 支持方向键、Enter、Esc 和鼠标；鼠标选择在 `mousedown` 阶段立即提交；
 - `showInactive()` 的 History popup 第一次被鼠标激活时会让 Widget 的 Description input 先 blur；main process 会通过独立 interaction-state IPC 告知 Widget 当前正在与 History popup 交互，Widget 此时抑制普通 blur-save，避免 120 ms 自动保存把 popup 提前关闭；popup 选择、失焦或关闭后清除该状态；
-- 鼠标建议项同时监听 `mousedown` 与 `click`，并在 popup renderer 内去重，只允许一次 selection IPC；这样兼容 Windows 首次激活 inactive BrowserWindow 时可能吞掉 `mousedown`、但仍产生 `click` 的情况；真正选中后仍按 `send selection → close popup` 交给 Widget，并把历史 Description + Project + Task 作为一个独立 TimeEntry 更新应用；
+- Windows 首次激活 `showInactive()` popup 时，原始 DOM `mousedown` / `click` 可能都被 native 激活过程吞掉。History BrowserWindow 获得 focus 时，main process 会读取 `screen.getCursorScreenPoint()`，换算成 popup 本地坐标并发送给 popup renderer；renderer 使用 `document.elementFromPoint()` 找到实际 suggestion 按钮并触发现有 selection。普通 `mousedown` / `click` 仍作为窗口已激活后的兜底路径，并通过 renderer 内去重只允许一次 selection IPC；真正选中后仍按 `send selection → close popup` 交给 Widget，并把历史 Description + Project + Task 作为一个独立 TimeEntry 更新应用；
 - 建议数据来自最近一页 time entries，不是扫描全部历史数据库；
 - UI 最多显示 12 条；
 - 去重键是 `(description, project_id, task_id)`，所以相同 Description 在不同 Project/Task 下仍可分别出现；
@@ -249,7 +249,7 @@ src/renderer/src/utils/useTimer.ts
 3. 不要删除约 180 ms 的 display-metrics settle 逻辑，除非替代实现已经在 mixed-DPI Windows 上验证。
 4. 不要把 Project 和 Task 的更新拆成可能产生非法组合的两个独立状态。
 5. 选择历史 Description 建议时，要保持“Description + Project + Task 一起恢复”的语义。
-6. Description History popup 出现时不要主动抢 Description 输入焦点，但窗口本身必须保持可交互；不要再用 `focusable: false`。Windows 首次点击 `showInactive()` popup 时必须保持 interaction-state blur 抑制，避免 Description 的 120 ms blur-save 抢先关闭 popup；建议项保留 `mousedown` + `click` 去重兜底，选中后仍使用 `send selection → close popup`，且 selection 生效不能依赖 input 仍处于 editing 状态。
+6. Description History popup 出现时不要主动抢 Description 输入焦点，但窗口本身必须保持可交互；不要再用 `focusable: false`。Windows 首次点击 `showInactive()` popup 时必须保持 interaction-state blur 抑制，并保留 focus 时基于 `screen.getCursorScreenPoint()` → popup-local 坐标 → renderer `elementFromPoint()` 的 activation-click 恢复链路；普通 `mousedown` + `click` 仅作为兜底。选中后仍使用 `send selection → close popup`，且 selection 生效不能依赖 input 仍处于 editing 状态。
 7. Project/Task picker 和 Description History popup 不要重新塞回 52-DIP Widget 内部造成裁切；二者宽度应继续跟随 Widget 当前实际 bounds，并保持 mixed-DPI 显示后重校准。
 8. `Ctrl+R` 在主应用内是 Sync，不是 renderer reload。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
@@ -501,7 +501,7 @@ npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64
 - `package.json` 的 `afterSign` / notarization 配置是否仍然存在，以及 Windows 本地 build 是否仍需 `--config electron-builder.yml`；
 - `.npmrc` 的 `min-release-age` 是否被当前 npm 正式支持；
 - Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；
-- Description History 是否仍可用鼠标左键和键盘选择，且 popup 出现时不会主动抢焦点；Windows 首次鼠标激活 History 时，interaction-state 是否能阻止 Description blur-save 提前关闭 popup，`mousedown` / `click` 去重是否只提交一次，并最终正确恢复 Description + Project + Task；
+- Description History 是否仍可用鼠标左键和键盘选择，且 popup 出现时不会主动抢焦点；Windows 首次鼠标激活 History 时，interaction-state 是否能阻止 Description blur-save 提前关闭 popup，focus activation-click 的 cursor-point → `elementFromPoint()` 恢复链路是否能命中正确行，普通 `mousedown` / `click` 兜底是否只提交一次，并最终正确恢复 Description + Project + Task；
 - Project/Task Picker 与 Description History 在不同 DPI 显示器上是否仍与 Widget 等宽；
 - 当前 fork 是否仍基于文档记录的 upstream release / commit；若升级基线，应同步更新 `0.3.x-cyan.N` 版本与建议 tag 命名；
 - 修改源码后是否先重新生成 `out/` 再打包，避免把旧 renderer / preload / main 产物重新封装进新的 EXE；

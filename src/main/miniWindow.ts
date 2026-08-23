@@ -224,6 +224,19 @@ function openDescriptionSuggestions(
         if (!miniWindow.isDestroyed()) {
             miniWindow.webContents.send('descriptionSuggestionInteractionChanged', true)
         }
+
+        // On Windows, the first click that activates a showInactive() window can
+        // be consumed by native window activation before Chromium receives a DOM
+        // mouse event. Reconstruct that activation click from the current cursor
+        // position and let the popup renderer resolve the actual suggestion row.
+        if (!suggestionsWindow.isDestroyed()) {
+            const cursor = screen.getCursorScreenPoint()
+            const bounds = suggestionsWindow.getBounds()
+            suggestionsWindow.webContents.send('descriptionSuggestionActivationClick', {
+                x: cursor.x - bounds.x,
+                y: cursor.y - bounds.y,
+            })
+        }
     })
     suggestionsWindow.on('blur', () => {
         if (descriptionSuggestionsWindow === suggestionsWindow) {

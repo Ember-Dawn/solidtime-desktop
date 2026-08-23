@@ -55,6 +55,17 @@ if (process.contextIsolated) {
                 return () =>
                     ipcRenderer.removeListener('descriptionSuggestionInteractionChanged', listener)
             },
+            onDescriptionSuggestionActivationClick: (
+                callback: (point: { x: number; y: number }) => void
+            ) => {
+                const listener = (
+                    _event: Electron.IpcRendererEvent,
+                    point: { x: number; y: number }
+                ) => callback(point)
+                ipcRenderer.on('descriptionSuggestionActivationClick', listener)
+                return () =>
+                    ipcRenderer.removeListener('descriptionSuggestionActivationClick', listener)
+            },
             onDescriptionSuggestionsData: (callback: (data: unknown) => void) => {
                 const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
                 ipcRenderer.on('descriptionSuggestionsData', listener)

@@ -138,6 +138,9 @@ export interface IElectronAPI {
     onDescriptionSuggestionInteractionChanged: (
         callback: (active: boolean) => void
     ) => () => void
+    onDescriptionSuggestionActivationClick: (
+        callback: (point: { x: number; y: number }) => void
+    ) => () => void
     onDescriptionSuggestionsData: (
         callback: (data: DescriptionSuggestionsData) => void
     ) => () => void
