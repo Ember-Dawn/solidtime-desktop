@@ -5,10 +5,8 @@ import { isE2ETesting } from './env'
 const MINI_WINDOW_WIDTH = 420
 const MINI_WINDOW_HEIGHT = 52
 const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
-const PROJECT_TASK_PICKER_WIDTH = 420
 const PROJECT_TASK_PICKER_HEIGHT = 520
 const PROJECT_TASK_PICKER_GAP = 8
-const DESCRIPTION_SUGGESTIONS_WIDTH = 420
 const DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT = 48
 const DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING = 12
 const DESCRIPTION_SUGGESTIONS_MAX_HEIGHT = 348
@@ -73,11 +71,12 @@ function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
     const miniBounds = miniWindow.getBounds()
     const display = screen.getDisplayMatching(miniBounds)
     const workArea = display.workArea
+    const width = Math.min(miniBounds.width, workArea.width)
     const height = Math.min(PROJECT_TASK_PICKER_HEIGHT, Math.max(260, workArea.height - 24))
 
     let x = miniBounds.x
-    if (x + PROJECT_TASK_PICKER_WIDTH > workArea.x + workArea.width) {
-        x = workArea.x + workArea.width - PROJECT_TASK_PICKER_WIDTH
+    if (x + width > workArea.x + workArea.width) {
+        x = workArea.x + workArea.width - width
     }
     x = Math.max(workArea.x, x)
 
@@ -86,7 +85,7 @@ function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
     const fitsBelow = belowY + height <= workArea.y + workArea.height
     const y = fitsBelow ? belowY : Math.max(workArea.y, aboveY)
 
-    return { x, y, width: PROJECT_TASK_PICKER_WIDTH, height }
+    return { x, y, width, height }
 }
 
 function getDescriptionSuggestionsHeight(suggestionCount: number) {
@@ -101,12 +100,13 @@ function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow, suggestionCo
     const miniBounds = miniWindow.getBounds()
     const display = screen.getDisplayMatching(miniBounds)
     const workArea = display.workArea
+    const width = Math.min(miniBounds.width, workArea.width)
     const desiredHeight = getDescriptionSuggestionsHeight(suggestionCount)
     const height = Math.min(desiredHeight, Math.max(54, workArea.height - 24))
 
     let x = miniBounds.x
-    if (x + DESCRIPTION_SUGGESTIONS_WIDTH > workArea.x + workArea.width) {
-        x = workArea.x + workArea.width - DESCRIPTION_SUGGESTIONS_WIDTH
+    if (x + width > workArea.x + workArea.width) {
+        x = workArea.x + workArea.width - width
     }
     x = Math.max(workArea.x, x)
 
@@ -115,7 +115,30 @@ function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow, suggestionCo
     const fitsBelow = belowY + height <= workArea.y + workArea.height
     const y = fitsBelow ? belowY : Math.max(workArea.y, aboveY)
 
-    return { x, y, width: DESCRIPTION_SUGGESTIONS_WIDTH, height }
+    return { x, y, width, height }
+}
+
+function showPopupWithCurrentDisplayBounds(
+    popupWindow: BrowserWindow,
+    getBounds: () => Electron.Rectangle,
+    show: () => void
+) {
+    if (popupWindow.isDestroyed()) return
+
+    popupWindow.setBounds(getBounds(), false)
+    show()
+
+    if (process.platform === 'win32') {
+        // A newly shown frameless child window can keep the primary display's
+        // scale context after the widget moved to a monitor with a different DPI.
+        // Re-apply the widget-relative DIP bounds once the window is visible so
+        // Windows/Electron recalculates its native pixel size on the target display.
+        setImmediate(() => {
+            if (!popupWindow.isDestroyed()) {
+                popupWindow.setBounds(getBounds(), false)
+            }
+        })
+    }
 }
 
 function openProjectTaskPicker(miniWindow: BrowserWindow, data: ProjectTaskPickerData) {
@@ -153,8 +176,14 @@ function openProjectTaskPicker(miniWindow: BrowserWindow, data: ProjectTaskPicke
     pickerWindow.webContents.once('did-finish-load', () => {
         if (pickerWindow.isDestroyed()) return
         pickerWindow.webContents.send('projectTaskPickerData', data)
-        pickerWindow.show()
-        pickerWindow.focus()
+        showPopupWithCurrentDisplayBounds(
+            pickerWindow,
+            () => getProjectTaskPickerBounds(miniWindow),
+            () => {
+                pickerWindow.show()
+                pickerWindow.focus()
+            }
+        )
     })
 
     if (process.env['ELECTRON_RENDERER_URL']) {
@@ -201,7 +230,11 @@ function openDescriptionSuggestions(
     suggestionsWindow.webContents.once('did-finish-load', () => {
         if (suggestionsWindow.isDestroyed()) return
         suggestionsWindow.webContents.send('descriptionSuggestionsData', data)
-        suggestionsWindow.showInactive()
+        showPopupWithCurrentDisplayBounds(
+            suggestionsWindow,
+            () => getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
+            () => suggestionsWindow.showInactive()
+        )
     })
 
     if (process.env['ELECTRON_RENDERER_URL']) {

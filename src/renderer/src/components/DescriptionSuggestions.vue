@@ -50,8 +50,7 @@ onBeforeUnmount(() => {
                     type="button"
                     class="w-full min-w-0 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5"
                     :class="index === activeIndex ? 'bg-black/[0.07] dark:bg-white/[0.07]' : ''"
-                    @mousedown.prevent
-                    @click="chooseSuggestion(suggestion)">
+                    @mousedown.left.prevent="chooseSuggestion(suggestion)">
                     <span
                         class="min-w-0 flex-1 truncate font-medium"
                         :class="suggestion.description ? 'text-text-primary' : 'text-text-tertiary'">

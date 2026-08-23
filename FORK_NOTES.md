@@ -6,12 +6,17 @@
 
 ## 1. 当前基线
 
-- 当前 `package.json` 应用版本：`0.0.71-beta`。
-- 当前没有为了本地个人构建而额外修改版本号或发布 tag。
+- upstream 基线：`solidtime-io/solidtime-desktop` 的 `v0.3.2`。
+- upstream 基线 commit：`af4e5666cbd7e7b68f60b7ac3a85ed20e204787e`。
+- 当前 fork 的 `main` 是在该 commit 之后继续叠加本仓库定制；核对时曾确认相对该基线为 ahead、behind 为 0。
+- 当前 `package.json` 应用版本：`0.3.2-cyan.1`。
+- 建议与该版本对应的 Git tag 名称：`v0.3.2-cyan.1`。本文只规定命名，不代表已经创建远程 tag / Release。
 - 主要使用环境：Windows 11 x64。
 - Mini Widget 重点适配了双 4K、多 DPI 显示器环境。
 
-> 注意：package version、Git tag 和 GitHub Release 是不同概念。不要因为本文记录了 `0.0.71-beta` 就自动创建、移动或覆盖远程 tag / Release。
+版本命名约定：在仍基于同一 upstream 版本时递增 `cyan.N`，例如 `v0.3.2-cyan.2`；以后同步到新的 upstream release 后，从新的基线重新开始，例如 `v0.3.3-cyan.1`。
+
+> 注意：package version、Git tag 和 GitHub Release 是不同概念。AI / 自动化工具不得因为本文记录了建议 tag，就自动创建、移动或覆盖任何远程 tag / Release。
 
 ## 2. 当前主要定制
 
@@ -118,7 +123,7 @@ Project > Task
 
 - 使用独立、非 focusable 的 frameless BrowserWindow，避免 Description 输入框失去键盘焦点；
 - 只有用户真正输入内容后才显示建议，不是单纯 focus 就弹出；
-- 支持方向键、Enter、Esc 和鼠标；
+- 支持方向键、Enter、Esc 和鼠标；鼠标选择在 `mousedown` 阶段立即提交，避免非 focusable popup 在 Windows 上出现按下后 `click` 未可靠送达的问题；
 - 建议数据来自最近一页 time entries，不是扫描全部历史数据库；
 - UI 最多显示 12 条；
 - 去重键是 `(description, project_id, task_id)`，所以相同 Description 在不同 Project/Task 下仍可分别出现；
@@ -161,7 +166,8 @@ Description History popup 和 Project/Task Picker 当前统一为单层 popup �
 - BrowserWindow 的可见区域就是 popup 本体；
 - 不再采用“透明外层 padding + 内层 rounded card”的双框结构；
 - 与 Widget 左边缘对齐；
-- 宽度与 Widget 一致（约 420 DIP）；
+- 宽度直接取当前 Widget 的实际 DIP bounds，不再让两个 popup 各自维护独立的固定宽度；
+- 在 Windows mixed-DPI 环境中，popup 显示后再次应用一次当前 Widget 相对 bounds，使 Electron 在目标显示器上重新计算 native pixel 尺寸；
 - 根据工作区空间自动选择显示在 Widget 上方或下方；
 - Description History 高度根据结果数量自适应并设置最大高度。
 
@@ -178,9 +184,11 @@ Mini Widget 已针对 Windows 多显示器不同缩放比例处理过拖动问�
 - 不能在 Windows 正在 native drag 的过程中立即 `setBounds()`；
 - 如果拖动时立即改 bounds，会重新计算鼠标抓取偏移，表现为 Widget 突然跳动；
 - 当前采用约 180 ms 的 settle/debounce，等 move 事件停止后再应用 mixed-DPI 修复；
-- 显示器变化时同步关闭 popup，避免 popup 留在旧坐标系中。
+- 显示器变化时同步关闭 popup，避免 popup 留在旧坐标系中；
+- Project/Task Picker 与 Description History popup 在新屏重新打开时，以 Widget 当前实际宽度为基准，并在显示后重应用一次 bounds，避免 125% / 150% 等 mixed-DPI 下 popup 看起来比 Widget 窄。
 
-这是已经针对真实双 4K mixed-DPI 环境解决过的问题。除非有明确替代实现，不要删除 debounce，也不要把逻辑改回每次 move 立即 `setBounds()`。
+这是已经针对真实双 4K mixed-DPI 环境解决过的问题。除非有明确替代实现，不要删除 debounce，也不要把 Widget 逻辑改回每次 move 立即 `setBounds()`。popup 自身不是拖动目标，可以在显示后安全地重应用 bounds。
+
 ### 2.12 Widget Start / Stop 语义
 
 Widget 的普通 Start / Stop 与 tray 的 Continue 现在有明确区分：
@@ -238,8 +246,8 @@ src/renderer/src/utils/useTimer.ts
 3. 不要删除约 180 ms 的 display-metrics settle 逻辑，除非替代实现已经在 mixed-DPI Windows 上验证。
 4. 不要把 Project 和 Task 的更新拆成可能产生非法组合的两个独立状态。
 5. 选择历史 Description 建议时，要保持“Description + Project + Task 一起恢复”的语义。
-6. Description History popup 必须保持不抢 Description 输入框焦点。
-7. Project/Task picker 和 Description History popup 不要重新塞回 52-DIP Widget 内部造成裁切。
+6. Description History popup 必须保持不抢 Description 输入框焦点，同时鼠标左键必须能够直接选择建议项。
+7. Project/Task picker 和 Description History popup 不要重新塞回 52-DIP Widget 内部造成裁切；二者宽度应继续跟随 Widget 当前实际 bounds，并保持 mixed-DPI 显示后重校准。
 8. `Ctrl+R` 在主应用内是 Sync，不是 renderer reload。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
 10. 修改 title bar 时要注意 Windows 原生 `_ / □ / ×` 区域，不要靠容易漂移的绝对定位重新制造错位。
@@ -247,7 +255,26 @@ src/renderer/src/utils/useTimer.ts
 
 ## 5. Windows 11 x64 本地构建
 
-### 5.1 目标
+### 5.1 开发运行（dev）
+
+依赖已经安装时，在仓库根目录运行：
+
+```powershell
+Set-Location E:\github\solidtime-desktop
+npm run dev
+```
+
+如果希望先做一次类型检查再启动开发版：
+
+```powershell
+Set-Location E:\github\solidtime-desktop
+npm run typecheck
+npm run dev
+```
+
+开发版只用于调试，不生成 NSIS 安装包。若已安装的 production solidtime 正在运行，单实例锁可能阻止 dev 实例启动，此时应先完全退出已安装版本。
+
+### 5.2 目标
 
 当前实际验证的本地构建目标是：
 
@@ -257,7 +284,7 @@ src/renderer/src/utils/useTimer.ts
 - 不生成 ARM64 / macOS / Linux；
 - 不上传、不发布 GitHub Release。
 
-### 5.2 已验证成功的两步构建
+### 5.3 已验证成功的两步构建
 
 在仓库根目录：
 
@@ -296,7 +323,7 @@ E:\github\solidtime-desktop\dist\win-unpacked\
 
 如果只是本机安装，主要需要 `solidtime-setup-x64.exe`。
 
-### 5.3 为什么不直接使用当前默认 electron-builder
+### 5.4 为什么不直接使用当前默认 electron-builder
 
 仓库依赖范围允许安装较新的 `electron-builder`。本机实际运行时曾使用到 `electron-builder 26.8.1`，打包长时间停在：
 
@@ -316,7 +343,7 @@ electron-builder 26.0.3
 
 这是一条“本地已验证 workaround”，不是要求修改 upstream 的正式跨平台发布配置。未来升级 Electron / npm / electron-builder 后可以重新验证是否仍需要固定版本。
 
-### 5.4 为什么必须显式使用 `--config electron-builder.yml`
+### 5.5 为什么必须显式使用 `--config electron-builder.yml`
 
 `package.json` 的 `build` 配置当前包含：
 
@@ -367,7 +394,7 @@ Cannot find module 'E:\github\solidtime-desktop\null'
 npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64 --publish never
 ```
 
-### 5.5 `min-release-age` npm warning
+### 5.6 `min-release-age` npm warning
 
 仓库 `.npmrc` 当前包含：
 
@@ -386,7 +413,7 @@ npm warn Unknown project config "min-release-age". This will stop working in the
 
 未来升级 npm 时需要重新确认该配置是否仍受支持；不要为了消除 warning 在没有确认语义的情况下随意删除它。
 
-### 5.6 判断构建是否成功
+### 5.7 判断构建是否成功
 
 成功日志中会出现类似：
 
@@ -405,7 +432,7 @@ building block map  blockMapFile=dist\solidtime-setup-x64.exe.blockmap
 Get-Item E:\github\solidtime-desktop\dist\solidtime-setup-x64.exe
 ```
 
-### 5.7 日常重复构建
+### 5.8 日常重复构建
 
 依赖已经安装、只是修改 Vue / TypeScript 源码时，不需要每次重新 `npm install`。
 
@@ -424,7 +451,7 @@ npm run typecheck
 npm run dev
 ```
 
-### 5.8 修改源码后不要只重新打包旧 `out/`
+### 5.9 修改源码后不要只重新打包旧 `out/`
 
 本机曾实际遇到过：源码已经正确修改，但安装新生成的 EXE 后，Widget 仍表现为旧行为，例如：
 
@@ -471,6 +498,9 @@ npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64
 - `package.json` 的 `afterSign` / notarization 配置是否仍然存在，以及 Windows 本地 build 是否仍需 `--config electron-builder.yml`；
 - `.npmrc` 的 `min-release-age` 是否被当前 npm 正式支持；
 - Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；
+- Description History 是否仍可用鼠标左键和键盘选择，且鼠标操作不会抢走 Description 输入焦点；
+- Project/Task Picker 与 Description History 在不同 DPI 显示器上是否仍与 Widget 等宽；
+- 当前 fork 是否仍基于文档记录的 upstream release / commit；若升级基线，应同步更新 `0.3.x-cyan.N` 版本与建议 tag 命名；
 - 修改源码后是否先重新生成 `out/` 再打包，避免把旧 renderer / preload / main 产物重新封装进新的 EXE；
 - Widget Stop 是否保持主窗口隐藏，Widget 普通 Start 是否仍为空白新建，tray Continue 是否仍恢复上一条 entry。
 
