@@ -130,6 +130,10 @@ export interface IElectronAPI {
     onProjectTaskPickerData: (callback: (data: ProjectTaskPickerData) => void) => () => void
     selectProjectTask: (selection: ProjectTaskPickerSelection) => void
     closeProjectTaskPicker: () => void
+    setMiniDescriptionHistory: (suggestionCount: number) => void
+    onMiniDescriptionHistoryPlacement: (
+        callback: (placement: 'above' | 'below') => void
+    ) => () => void
     openDescriptionSuggestions: (data: DescriptionSuggestionsData) => void
     updateDescriptionSuggestions: (data: DescriptionSuggestionsData) => void
     onDescriptionSuggestionSelection: (

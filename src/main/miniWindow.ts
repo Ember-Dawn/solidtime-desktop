@@ -7,10 +7,10 @@ const MINI_WINDOW_HEIGHT = 52
 const DISPLAY_METRICS_SETTLE_DELAY_MS = 180
 const PROJECT_TASK_PICKER_HEIGHT = 520
 const PROJECT_TASK_PICKER_GAP = 8
-const DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT = 48
-const DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING = 12
-const DESCRIPTION_SUGGESTIONS_MAX_HEIGHT = 348
-const DESCRIPTION_SUGGESTIONS_GAP = 6
+const DESCRIPTION_HISTORY_ITEM_HEIGHT = 48
+const DESCRIPTION_HISTORY_VERTICAL_PADDING = 12
+const DESCRIPTION_HISTORY_MAX_HEIGHT = 348
+const DESCRIPTION_HISTORY_GAP = 6
 
 interface ProjectTaskPickerProject {
     id: string
@@ -36,22 +36,12 @@ interface ProjectTaskPickerSelection {
     taskId: string | null
 }
 
-interface DescriptionSuggestion {
-    description: string | null
-    projectId: string | null
-    taskId: string | null
-    projectName: string | null
-    projectColor: string | null
-    taskName: string | null
-}
-
-interface DescriptionSuggestionsData {
-    suggestions: DescriptionSuggestion[]
-    activeIndex: number
-}
+type DescriptionHistoryPlacement = 'above' | 'below'
 
 let projectTaskPickerWindow: BrowserWindow | null = null
-let descriptionSuggestionsWindow: BrowserWindow | null = null
+let miniDescriptionHistoryHeight = 0
+let miniDescriptionHistorySuggestionCount = 0
+let miniDescriptionHistoryPlacement: DescriptionHistoryPlacement = 'below'
 
 function closeProjectTaskPicker() {
     if (projectTaskPickerWindow && !projectTaskPickerWindow.isDestroyed()) {
@@ -60,15 +50,98 @@ function closeProjectTaskPicker() {
     projectTaskPickerWindow = null
 }
 
-function closeDescriptionSuggestions() {
-    if (descriptionSuggestionsWindow && !descriptionSuggestionsWindow.isDestroyed()) {
-        descriptionSuggestionsWindow.close()
+function applyMiniWindowShape(miniWindow: BrowserWindow) {
+    if (process.platform !== 'win32' || miniWindow.isDestroyed()) return
+
+    const bounds = miniWindow.getBounds()
+    miniWindow.setShape([{ x: 0, y: 0, width: MINI_WINDOW_WIDTH, height: bounds.height }])
+}
+
+function getMiniWidgetBaseBounds(miniWindow: BrowserWindow) {
+    const bounds = miniWindow.getBounds()
+    const y =
+        miniDescriptionHistoryHeight > 0 && miniDescriptionHistoryPlacement === 'above'
+            ? bounds.y + bounds.height - MINI_WINDOW_HEIGHT
+            : bounds.y
+
+    return {
+        x: bounds.x,
+        y,
+        width: MINI_WINDOW_WIDTH,
+        height: MINI_WINDOW_HEIGHT,
     }
-    descriptionSuggestionsWindow = null
+}
+
+function resizeMiniWindowForDescriptionHistory(miniWindow: BrowserWindow, suggestionCount: number) {
+    if (miniWindow.isDestroyed()) return
+
+    const baseBounds = getMiniWidgetBaseBounds(miniWindow)
+    miniDescriptionHistorySuggestionCount = Math.max(0, Math.min(12, Math.floor(suggestionCount)))
+
+    if (miniDescriptionHistorySuggestionCount === 0) {
+        miniDescriptionHistoryHeight = 0
+        miniDescriptionHistoryPlacement = 'below'
+        miniWindow.setBounds(baseBounds, false)
+        applyMiniWindowShape(miniWindow)
+        miniWindow.webContents.send('miniDescriptionHistoryPlacement', 'below')
+        return
+    }
+
+    const display = screen.getDisplayMatching(baseBounds)
+    const workArea = display.workArea
+    const desiredHistoryHeight = Math.min(
+        DESCRIPTION_HISTORY_MAX_HEIGHT,
+        DESCRIPTION_HISTORY_VERTICAL_PADDING +
+            miniDescriptionHistorySuggestionCount * DESCRIPTION_HISTORY_ITEM_HEIGHT
+    )
+    const belowSpace = Math.max(
+        0,
+        workArea.y +
+            workArea.height -
+            (baseBounds.y + MINI_WINDOW_HEIGHT + DESCRIPTION_HISTORY_GAP)
+    )
+    const aboveSpace = Math.max(0, baseBounds.y - workArea.y - DESCRIPTION_HISTORY_GAP)
+
+    miniDescriptionHistoryPlacement =
+        belowSpace >= desiredHistoryHeight || belowSpace >= aboveSpace ? 'below' : 'above'
+    const availableHistoryHeight =
+        miniDescriptionHistoryPlacement === 'below' ? belowSpace : aboveSpace
+    miniDescriptionHistoryHeight = Math.min(desiredHistoryHeight, availableHistoryHeight)
+
+    if (miniDescriptionHistoryHeight <= 0) {
+        miniDescriptionHistorySuggestionCount = 0
+        miniDescriptionHistoryPlacement = 'below'
+        miniWindow.setBounds(baseBounds, false)
+        applyMiniWindowShape(miniWindow)
+        miniWindow.webContents.send('miniDescriptionHistoryPlacement', 'below')
+        return
+    }
+
+    const totalHeight =
+        MINI_WINDOW_HEIGHT + DESCRIPTION_HISTORY_GAP + miniDescriptionHistoryHeight
+    const y =
+        miniDescriptionHistoryPlacement === 'above'
+            ? baseBounds.y - DESCRIPTION_HISTORY_GAP - miniDescriptionHistoryHeight
+            : baseBounds.y
+
+    miniWindow.setBounds(
+        {
+            x: baseBounds.x,
+            y,
+            width: MINI_WINDOW_WIDTH,
+            height: totalHeight,
+        },
+        false
+    )
+    applyMiniWindowShape(miniWindow)
+    miniWindow.webContents.send(
+        'miniDescriptionHistoryPlacement',
+        miniDescriptionHistoryPlacement
+    )
 }
 
 function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
-    const miniBounds = miniWindow.getBounds()
+    const miniBounds = getMiniWidgetBaseBounds(miniWindow)
     const display = screen.getDisplayMatching(miniBounds)
     const workArea = display.workArea
     const width = Math.min(miniBounds.width, workArea.width)
@@ -82,36 +155,6 @@ function getProjectTaskPickerBounds(miniWindow: BrowserWindow) {
 
     const belowY = miniBounds.y + miniBounds.height + PROJECT_TASK_PICKER_GAP
     const aboveY = miniBounds.y - height - PROJECT_TASK_PICKER_GAP
-    const fitsBelow = belowY + height <= workArea.y + workArea.height
-    const y = fitsBelow ? belowY : Math.max(workArea.y, aboveY)
-
-    return { x, y, width, height }
-}
-
-function getDescriptionSuggestionsHeight(suggestionCount: number) {
-    return Math.min(
-        DESCRIPTION_SUGGESTIONS_MAX_HEIGHT,
-        DESCRIPTION_SUGGESTIONS_VERTICAL_PADDING +
-            Math.max(1, suggestionCount) * DESCRIPTION_SUGGESTIONS_ITEM_HEIGHT
-    )
-}
-
-function getDescriptionSuggestionsBounds(miniWindow: BrowserWindow, suggestionCount: number) {
-    const miniBounds = miniWindow.getBounds()
-    const display = screen.getDisplayMatching(miniBounds)
-    const workArea = display.workArea
-    const width = Math.min(miniBounds.width, workArea.width)
-    const desiredHeight = getDescriptionSuggestionsHeight(suggestionCount)
-    const height = Math.min(desiredHeight, Math.max(54, workArea.height - 24))
-
-    let x = miniBounds.x
-    if (x + width > workArea.x + workArea.width) {
-        x = workArea.x + workArea.width - width
-    }
-    x = Math.max(workArea.x, x)
-
-    const belowY = miniBounds.y + miniBounds.height + DESCRIPTION_SUGGESTIONS_GAP
-    const aboveY = miniBounds.y - height - DESCRIPTION_SUGGESTIONS_GAP
     const fitsBelow = belowY + height <= workArea.y + workArea.height
     const y = fitsBelow ? belowY : Math.max(workArea.y, aboveY)
 
@@ -142,7 +185,7 @@ function showPopupWithCurrentDisplayBounds(
 }
 
 function openProjectTaskPicker(miniWindow: BrowserWindow, data: ProjectTaskPickerData) {
-    closeDescriptionSuggestions()
+    resizeMiniWindowForDescriptionHistory(miniWindow, 0)
     closeProjectTaskPicker()
 
     const pickerWindow = new BrowserWindow({
@@ -195,99 +238,6 @@ function openProjectTaskPicker(miniWindow: BrowserWindow, data: ProjectTaskPicke
     }
 }
 
-function openDescriptionSuggestions(
-    miniWindow: BrowserWindow,
-    data: DescriptionSuggestionsData
-) {
-    closeProjectTaskPicker()
-    closeDescriptionSuggestions()
-
-    const suggestionsWindow = new BrowserWindow({
-        ...getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
-        show: false,
-        frame: false,
-        resizable: false,
-        transparent: true,
-        hasShadow: true,
-        skipTaskbar: true,
-        alwaysOnTop: true,
-        parent: miniWindow,
-        webPreferences: {
-            preload: join(__dirname, '../preload/mini.mjs'),
-            sandbox: false,
-        },
-    })
-
-    descriptionSuggestionsWindow = suggestionsWindow
-    suggestionsWindow.setAutoHideMenuBar(true)
-    suggestionsWindow.on('focus', () => {
-        if (!miniWindow.isDestroyed()) {
-            miniWindow.webContents.send('descriptionSuggestionInteractionChanged', true)
-        }
-
-        // On Windows, the first click that activates a showInactive() window can
-        // be consumed by native window activation before Chromium receives a DOM
-        // mouse event. Reconstruct that activation click from the current cursor
-        // position and let the popup renderer resolve the actual suggestion row.
-        if (!suggestionsWindow.isDestroyed()) {
-            const cursor = screen.getCursorScreenPoint()
-            const bounds = suggestionsWindow.getBounds()
-            suggestionsWindow.webContents.send('descriptionSuggestionActivationClick', {
-                x: cursor.x - bounds.x,
-                y: cursor.y - bounds.y,
-            })
-        }
-    })
-    suggestionsWindow.on('blur', () => {
-        if (descriptionSuggestionsWindow === suggestionsWindow) {
-            closeDescriptionSuggestions()
-        }
-    })
-    suggestionsWindow.once('closed', () => {
-        if (!miniWindow.isDestroyed()) {
-            miniWindow.webContents.send('descriptionSuggestionInteractionChanged', false)
-        }
-        if (descriptionSuggestionsWindow === suggestionsWindow) {
-            descriptionSuggestionsWindow = null
-        }
-    })
-
-    suggestionsWindow.webContents.once('did-finish-load', () => {
-        if (suggestionsWindow.isDestroyed()) return
-        suggestionsWindow.webContents.send('descriptionSuggestionsData', data)
-        showPopupWithCurrentDisplayBounds(
-            suggestionsWindow,
-            () => getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
-            // Keep the editor focused when the popup first appears, while leaving
-            // the window focusable so an explicit mouse click can be delivered.
-            () => suggestionsWindow.showInactive()
-        )
-    })
-
-    if (process.env['ELECTRON_RENDERER_URL']) {
-        void suggestionsWindow.loadURL(
-            `${process.env['ELECTRON_RENDERER_URL']}/index-description-suggestions.html`
-        )
-    } else {
-        void suggestionsWindow.loadFile(
-            join(__dirname, '../renderer/index-description-suggestions.html')
-        )
-    }
-}
-
-function updateDescriptionSuggestions(
-    miniWindow: BrowserWindow,
-    data: DescriptionSuggestionsData
-) {
-    if (!descriptionSuggestionsWindow || descriptionSuggestionsWindow.isDestroyed()) return
-
-    descriptionSuggestionsWindow.setBounds(
-        getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
-        false
-    )
-    descriptionSuggestionsWindow.webContents.send('descriptionSuggestionsData', data)
-}
-
 export function initializeMiniWindow(icon: string) {
     const miniWindow = new BrowserWindow({
         width: MINI_WINDOW_WIDTH,
@@ -331,23 +281,22 @@ export function initializeMiniWindow(icon: string) {
         // BrowserWindow bounds are expressed in DIP. Re-applying them after a
         // per-monitor DPI transition makes Electron recalculate the native
         // pixel bounds for the new display instead of keeping stale metrics.
-        miniWindow.setBounds(
-            {
-                x: bounds.x,
-                y: bounds.y,
-                width: MINI_WINDOW_WIDTH,
-                height: MINI_WINDOW_HEIGHT,
-            },
-            false
-        )
-
-        // Windows shaped frameless windows can keep stale geometry after a
-        // mixed-DPI transition. Re-apply the original rectangular shape so
-        // the widget keeps its default square-corner appearance.
-        if (process.platform === 'win32') {
-            miniWindow.setShape([
-                { x: 0, y: 0, width: MINI_WINDOW_WIDTH, height: MINI_WINDOW_HEIGHT },
-            ])
+        if (miniDescriptionHistorySuggestionCount > 0) {
+            resizeMiniWindowForDescriptionHistory(
+                miniWindow,
+                miniDescriptionHistorySuggestionCount
+            )
+        } else {
+            miniWindow.setBounds(
+                {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: MINI_WINDOW_WIDTH,
+                    height: MINI_WINDOW_HEIGHT,
+                },
+                false
+            )
+            applyMiniWindowShape(miniWindow)
         }
     }
 
@@ -387,19 +336,16 @@ export function initializeMiniWindow(icon: string) {
 
     miniWindow.on('move', () => {
         closeProjectTaskPicker()
-        closeDescriptionSuggestions()
         scheduleDisplayMetricsApply()
     })
 
     const handleDisplayMetricsChanged = () => {
         closeProjectTaskPicker()
-        closeDescriptionSuggestions()
         scheduleDisplayMetricsApply()
     }
     screen.on('display-metrics-changed', handleDisplayMetricsChanged)
     miniWindow.on('closed', () => {
         closeProjectTaskPicker()
-        closeDescriptionSuggestions()
         if (displayMetricsSettleTimer) {
             clearTimeout(displayMetricsSettleTimer)
             displayMetricsSettleTimer = null
@@ -419,7 +365,7 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
     })
     ipcMain.on('hideMiniWindow', () => {
         closeProjectTaskPicker()
-        closeDescriptionSuggestions()
+        resizeMiniWindowForDescriptionHistory(miniWindow, 0)
         miniWindow.hide()
     })
     ipcMain.on('openProjectTaskPicker', (event, data: ProjectTaskPickerData) => {
@@ -435,45 +381,17 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
         if (!projectTaskPickerWindow || event.sender !== projectTaskPickerWindow.webContents) return
         closeProjectTaskPicker()
     })
-    ipcMain.on('openDescriptionSuggestions', (event, data: DescriptionSuggestionsData) => {
+    ipcMain.on('setMiniDescriptionHistory', (event, suggestionCount: number) => {
         if (event.sender !== miniWindow.webContents || isE2ETesting()) return
-        openDescriptionSuggestions(miniWindow, data)
-    })
-    ipcMain.on('updateDescriptionSuggestions', (event, data: DescriptionSuggestionsData) => {
-        if (event.sender !== miniWindow.webContents || isE2ETesting()) return
-        updateDescriptionSuggestions(miniWindow, data)
-    })
-    ipcMain.on('descriptionSuggestionSelect', (event, suggestion: DescriptionSuggestion) => {
-        if (
-            !descriptionSuggestionsWindow ||
-            event.sender !== descriptionSuggestionsWindow.webContents
-        ) {
-            return
-        }
-
-        // Match the proven Project/Task picker ordering: deliver the explicit
-        // selection to the Widget first, then close the popup. Avoid extra focus
-        // or event-loop hops that can introduce additional refetch/blur races.
-        miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
-        closeDescriptionSuggestions()
-    })
-    ipcMain.on('closeDescriptionSuggestions', (event) => {
-        if (event.sender === miniWindow.webContents) {
-            closeDescriptionSuggestions()
-            return
-        }
-        if (
-            descriptionSuggestionsWindow &&
-            event.sender === descriptionSuggestionsWindow.webContents
-        ) {
-            closeDescriptionSuggestions()
-        }
+        resizeMiniWindowForDescriptionHistory(
+            miniWindow,
+            Number.isFinite(suggestionCount) ? suggestionCount : 0
+        )
     })
 
     let forcequit = false
     miniWindow.on('close', (event) => {
         closeProjectTaskPicker()
-        closeDescriptionSuggestions()
         if (process.platform === 'darwin') {
             if (forcequit === false) {
                 event.preventDefault()

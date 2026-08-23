@@ -35,6 +35,19 @@ if (process.contextIsolated) {
             selectProjectTask: (selection: unknown) =>
                 ipcRenderer.send('projectTaskPickerSelect', selection),
             closeProjectTaskPicker: () => ipcRenderer.send('closeProjectTaskPicker'),
+            setMiniDescriptionHistory: (suggestionCount: number) =>
+                ipcRenderer.send('setMiniDescriptionHistory', suggestionCount),
+            onMiniDescriptionHistoryPlacement: (
+                callback: (placement: 'above' | 'below') => void
+            ) => {
+                const listener = (
+                    _event: Electron.IpcRendererEvent,
+                    placement: 'above' | 'below'
+                ) => callback(placement)
+                ipcRenderer.on('miniDescriptionHistoryPlacement', listener)
+                return () =>
+                    ipcRenderer.removeListener('miniDescriptionHistoryPlacement', listener)
+            },
             openDescriptionSuggestions: (data: unknown) =>
                 ipcRenderer.send('openDescriptionSuggestions', data),
             updateDescriptionSuggestions: (data: unknown) =>

@@ -197,7 +197,7 @@ const descriptionInput = ref<HTMLInputElement | null>(null)
 const activeDescriptionSuggestionIndex = ref(-1)
 const descriptionSuggestionsOpen = ref(false)
 const descriptionHasUserInput = ref(false)
-const descriptionSuggestionInteractionActive = ref(false)
+const descriptionHistoryPlacement = ref<'above' | 'below'>('below')
 let descriptionBlurTimer: ReturnType<typeof setTimeout> | null = null
 
 const recentDescriptionSuggestions = computed<DescriptionSuggestion[]>(() => {
@@ -251,13 +251,13 @@ const filteredDescriptionSuggestions = computed(() => {
 
 function closeDescriptionSuggestions() {
     if (descriptionSuggestionsOpen.value) {
-        window.electronAPI.closeDescriptionSuggestions()
+        window.electronAPI.setMiniDescriptionHistory(0)
         descriptionSuggestionsOpen.value = false
     }
     activeDescriptionSuggestionIndex.value = -1
 }
 
-function syncDescriptionSuggestions(forceOpen = false) {
+function syncDescriptionSuggestions() {
     if (!isEditingDescription.value || filteredDescriptionSuggestions.value.length === 0) {
         closeDescriptionSuggestions()
         return
@@ -267,17 +267,8 @@ function syncDescriptionSuggestions(forceOpen = false) {
         activeDescriptionSuggestionIndex.value = -1
     }
 
-    const data = {
-        suggestions: filteredDescriptionSuggestions.value,
-        activeIndex: activeDescriptionSuggestionIndex.value,
-    }
-
-    if (!descriptionSuggestionsOpen.value || forceOpen) {
-        window.electronAPI.openDescriptionSuggestions(data)
-        descriptionSuggestionsOpen.value = true
-    } else {
-        window.electronAPI.updateDescriptionSuggestions(data)
-    }
+    descriptionSuggestionsOpen.value = true
+    window.electronAPI.setMiniDescriptionHistory(filteredDescriptionSuggestions.value.length)
 }
 
 async function startDescriptionEdit() {
@@ -285,7 +276,6 @@ async function startDescriptionEdit() {
     descriptionDraft.value = currentTimeEntry.value.description ?? ''
     descriptionHasUserInput.value = false
     activeDescriptionSuggestionIndex.value = -1
-    descriptionSuggestionInteractionActive.value = false
     isEditingDescription.value = true
     await nextTick()
     descriptionInput.value?.focus()
@@ -298,7 +288,6 @@ function cancelDescriptionEdit() {
         descriptionBlurTimer = null
     }
     closeDescriptionSuggestions()
-    descriptionSuggestionInteractionActive.value = false
     isEditingDescription.value = false
     descriptionHasUserInput.value = false
     descriptionDraft.value = ''
@@ -340,25 +329,13 @@ async function saveDescription() {
     await commitDescription(descriptionDraft.value)
 }
 
-async function applyDescriptionSuggestion(
-    suggestion: DescriptionSuggestion,
-    popupCloseHandledByMain = false
-) {
-    // A history pick is an authoritative TimeEntry update, not an input-focus
-    // side effect. Mouse selection may arrive after the input blur path has
-    // already started, so it must not depend on isEditingDescription.
+async function applyDescriptionSuggestion(suggestion: DescriptionSuggestion) {
     if (!canEditEntry.value) return
     if (descriptionBlurTimer) {
         clearTimeout(descriptionBlurTimer)
         descriptionBlurTimer = null
     }
-    descriptionSuggestionInteractionActive.value = false
-    if (popupCloseHandledByMain) {
-        descriptionSuggestionsOpen.value = false
-        activeDescriptionSuggestionIndex.value = -1
-    } else {
-        closeDescriptionSuggestions()
-    }
+    closeDescriptionSuggestions()
     isEditingDescription.value = false
     descriptionHasUserInput.value = false
     descriptionDraft.value = ''
@@ -423,10 +400,6 @@ function handleDescriptionBlur() {
     }
     descriptionBlurTimer = setTimeout(() => {
         descriptionBlurTimer = null
-        // The first click on a showInactive() History BrowserWindow activates
-        // that window and blurs this input before its renderer necessarily gets
-        // the mouse event. Keep the draft alive while the popup is being used.
-        if (descriptionSuggestionInteractionActive.value) return
         if (isEditingDescription.value) {
             void saveDescription()
         }
@@ -459,8 +432,7 @@ function openProjectTaskPicker() {
 }
 
 let removeProjectTaskPickerSelectionListener: (() => void) | null = null
-let removeDescriptionSuggestionSelectionListener: (() => void) | null = null
-let removeDescriptionSuggestionInteractionListener: (() => void) | null = null
+let removeDescriptionHistoryPlacementListener: (() => void) | null = null
 
 onMounted(() => {
     removeProjectTaskPickerSelectionListener = window.electronAPI.onProjectTaskPickerSelection(
@@ -493,25 +465,9 @@ onMounted(() => {
         }
     )
 
-    removeDescriptionSuggestionSelectionListener =
-        window.electronAPI.onDescriptionSuggestionSelection((suggestion) => {
-            void applyDescriptionSuggestion(suggestion, true)
-        })
-
-    removeDescriptionSuggestionInteractionListener =
-        window.electronAPI.onDescriptionSuggestionInteractionChanged((active) => {
-            descriptionSuggestionInteractionActive.value = active
-            if (active && descriptionBlurTimer) {
-                clearTimeout(descriptionBlurTimer)
-                descriptionBlurTimer = null
-            }
-            if (
-                !active &&
-                isEditingDescription.value &&
-                document.activeElement !== descriptionInput.value
-            ) {
-                void saveDescription()
-            }
+    removeDescriptionHistoryPlacementListener =
+        window.electronAPI.onMiniDescriptionHistoryPlacement((placement) => {
+            descriptionHistoryPlacement.value = placement
         })
 })
 
@@ -528,120 +484,156 @@ onBeforeUnmount(() => {
     }
     closeDescriptionSuggestions()
     removeProjectTaskPickerSelectionListener?.()
-    removeDescriptionSuggestionSelectionListener?.()
-    removeDescriptionSuggestionInteractionListener?.()
+    removeDescriptionHistoryPlacementListener?.()
 })
 </script>
 
 <template>
-    <div
-        class="h-screen relative w-screen border-border-secondary border bg-primary rounded-none py-1 flex items-center cursor-default justify-between select-none overflow-hidden">
+    <div class="h-screen w-screen flex flex-col overflow-hidden bg-transparent select-none">
         <div
-            class="flex items-center relative min-w-0"
-            :class="isOnBreak ? 'shrink-0' : 'flex-1'">
-            <div class="pl-1 pr-1 z-20 relative block" style="-webkit-app-region: drag">
-                <svg
-                    class="h-6"
-                    viewBox="0 0 25 25"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    data-tauri-drag-region>
-                    <path
-                        fill-rule="evenodd"
-                        clip-rule="evenodd"
-                        d="M9.5 8C10.3284 8 11 7.32843 11 6.5C11 5.67157 10.3284 5 9.5 5C8.67157 5 8 5.67157 8 6.5C8 7.32843 8.67157 8 9.5 8ZM9.5 14C10.3284 14 11 13.3284 11 12.5C11 11.6716 10.3284 11 9.5 11C8.67157 11 8 11.6716 8 12.5C8 13.3284 8.67157 14 9.5 14ZM11 18.5C11 19.3284 10.3284 20 9.5 20C8.67157 20 8 19.3284 8 18.5C8 17.6716 8.67157 17 9.5 17C10.3284 17 11 17.6716 11 18.5ZM15.5 8C16.3284 8 17 7.32843 17 6.5C17 5.67157 16.3284 5 15.5 5C14.6716 5 14 5.67157 14 6.5C14 7.32843 14.6716 8 15.5 8ZM17 12.5C17 13.3284 16.3284 14 15.5 14C14.6716 14 14 13.3284 14 12.5C14 11.6716 14.6716 11 15.5 11C16.3284 11 17 11.6716 17 12.5ZM15.5 20C16.3284 20 17 19.3284 17 18.5C17 17.6716 16.3284 17 15.5 17C14.6716 17 14 17.6716 14 18.5C14 19.3284 14.6716 20 15.5 20Z"
-                        fill="currentColor"
-                        data-tauri-drag-region />
-                </svg>
-            </div>
-            <div class="rounded-lg flex items-center shrink min-w-0 flex-1">
-                <div
-                    v-if="isOnBreak"
-                    class="flex items-center shrink-0 space-x-1.5 text-sm font-medium whitespace-nowrap text-amber-600 dark:text-amber-400 cursor-pointer"
-                    @click="focusMainWindow">
-                    <Coffee class="w-4 h-4 shrink-0" />
-                    <span>On break</span>
-                </div>
-                <div v-else class="flex flex-col flex-1 min-w-0 gap-[3px] leading-[1.05]">
-                    <input
-                        v-if="isEditingDescription"
-                        ref="descriptionInput"
-                        v-model="descriptionDraft"
-                        type="text"
-                        autocomplete="off"
-                        class="h-[18px] w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium text-black outline-none ring-0 focus:ring-0"
-                        style="-webkit-app-region: no-drag"
-                        @input="handleDescriptionInput"
-                        @keydown="handleDescriptionKeydown"
-                        @blur="handleDescriptionBlur" />
-                    <button
-                        v-else
-                        type="button"
-                        class="truncate text-left text-sm font-medium disabled:cursor-default"
-                        :class="[
-                            shownDescription ? 'text-black' : 'text-black/20',
-                            canEditEntry ? 'cursor-text hover:bg-black/5 rounded-sm' : '',
-                        ]"
-                        :disabled="!canEditEntry"
-                        style="-webkit-app-region: no-drag"
-                        @click="startDescriptionEdit">
-                        {{ shownDescription ?? 'No Description' }}
-                    </button>
-                    <button
-                        type="button"
-                        class="flex items-center min-w-0 text-sm text-black text-left disabled:cursor-default"
-                        :class="canEditEntry ? 'cursor-pointer hover:bg-black/5 rounded-sm' : ''"
-                        :disabled="!canEditEntry"
-                        style="-webkit-app-region: no-drag"
-                        @click="openProjectTaskPicker">
-                        <span
-                            class="w-2.5 h-2.5 rounded-full shrink-0 mr-1.5"
-                            :style="{ backgroundColor: shownProject?.color ?? '#a1a1aa' }"></span>
-                        <span class="truncate shrink min-w-0">
-                            {{ shownProject?.name ?? 'No Project' }}
-                        </span>
-                        <template v-if="currentTask">
-                            <ChevronRightIcon class="w-4 shrink-0 mx-0.5 text-black"></ChevronRightIcon>
-                            <span class="truncate shrink min-w-0">{{ currentTask.name }}</span>
-                        </template>
-                    </button>
-                </div>
-            </div>
+            v-if="descriptionSuggestionsOpen"
+            class="min-h-0 flex-1 overflow-y-auto border border-border-primary bg-background shadow-xl text-text-primary p-1.5"
+            :class="descriptionHistoryPlacement === 'above' ? 'order-1' : 'order-3'"
+            style="-webkit-app-region: no-drag">
+            <button
+                v-for="(suggestion, index) in filteredDescriptionSuggestions"
+                :key="`${suggestion.description ?? ''}:${suggestion.projectId ?? ''}:${suggestion.taskId ?? ''}`"
+                type="button"
+                class="w-full min-w-0 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5"
+                :class="index === activeDescriptionSuggestionIndex ? 'bg-black/[0.07] dark:bg-white/[0.07]' : ''"
+                @mousedown.left.prevent="applyDescriptionSuggestion(suggestion)">
+                <span
+                    class="min-w-0 flex-1 truncate font-medium"
+                    :class="suggestion.description ? 'text-text-primary' : 'text-text-tertiary'">
+                    {{ suggestion.description ?? 'No Description' }}
+                </span>
+                <span
+                    class="max-w-[52%] min-w-0 shrink-0 inline-flex items-center gap-1 rounded-md border border-border-primary bg-background px-2 py-1 text-xs">
+                    <span
+                        class="w-3 h-3 rounded-full shrink-0"
+                        :style="{ backgroundColor: suggestion.projectColor ?? '#a1a1aa' }"></span>
+                    <span class="truncate">{{ suggestion.projectName ?? 'No Project' }}</span>
+                    <template v-if="suggestion.taskName">
+                        <ChevronRightIcon class="w-3.5 h-3.5 shrink-0 text-text-tertiary" />
+                        <span class="truncate">{{ suggestion.taskName }}</span>
+                    </template>
+                </span>
+            </button>
         </div>
 
+        <div v-if="descriptionSuggestionsOpen" class="h-[6px] shrink-0 order-2"></div>
+
         <div
-            class="pr-2.5 flex items-center space-x-1 min-w-0"
-            :class="isOnBreak ? 'flex-1 justify-end pl-2' : ''">
-            <button
-                v-if="canResumeAfterBreak"
-                type="button"
-                class="flex min-w-0 shrink items-center gap-1 h-7 px-2 rounded-md bg-transparent border border-amber-500/40 hover:bg-amber-500/15 text-xs font-medium text-amber-600 dark:text-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition"
-                @click="resumeAfterBreak">
-                <Play class="w-3 h-3 shrink-0" />
-                <span class="truncate">{{
-                    resumeDescription ? `Resume \"${resumeDescription}\"` : 'Resume'
-                }}</span>
-            </button>
+            class="h-[52px] shrink-0 relative w-full border-border-secondary border bg-primary rounded-none py-1 flex items-center cursor-default justify-between overflow-hidden"
+            :class="descriptionHistoryPlacement === 'above' ? 'order-3' : 'order-1'">
             <div
-                class="text-base font-semibold text-black px-2 w-[82px] shrink-0 text-left"
-                style="-webkit-app-region: drag">
-                {{ currentTimer }}
+                class="flex items-center relative min-w-0"
+                :class="isOnBreak ? 'shrink-0' : 'flex-1'">
+                <div class="pl-1 pr-1 z-20 relative block" style="-webkit-app-region: drag">
+                    <svg
+                        class="h-6"
+                        viewBox="0 0 25 25"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        data-tauri-drag-region>
+                        <path
+                            fill-rule="evenodd"
+                            clip-rule="evenodd"
+                            d="M9.5 8C10.3284 8 11 7.32843 11 6.5C11 5.67157 10.3284 5 9.5 5C8.67157 5 8 5.67157 8 6.5C8 7.32843 8.67157 8 9.5 8ZM9.5 14C10.3284 14 11 13.3284 11 12.5C11 11.6716 10.3284 11 9.5 11C8.67157 11 8 11.6716 8 12.5C8 13.3284 8.67157 14 9.5 14ZM11 18.5C11 19.3284 10.3284 20 9.5 20C8.67157 20 8 19.3284 8 18.5C8 17.6716 8.67157 17 9.5 17C10.3284 17 11 17.6716 11 18.5ZM15.5 8C16.3284 8 17 7.32843 17 6.5C17 5.67157 16.3284 5 15.5 5C14.6716 5 14 5.67157 14 6.5C14 7.32843 14.6716 8 15.5 8ZM17 12.5C17 13.3284 16.3284 14 15.5 14C14.6716 14 14 13.3284 14 12.5C14 11.6716 14.6716 11 15.5 11C16.3284 11 17 11.6716 17 12.5ZM15.5 20C16.3284 20 17 19.3284 17 18.5C17 17.6716 16.3284 17 15.5 17C14.6716 17 14 17.6716 14 18.5C14 19.3284 14.6716 20 15.5 20Z"
+                            fill="currentColor"
+                            data-tauri-drag-region />
+                    </svg>
+                </div>
+                <div class="rounded-lg flex items-center shrink min-w-0 flex-1">
+                    <div
+                        v-if="isOnBreak"
+                        class="flex items-center shrink-0 space-x-1.5 text-sm font-medium whitespace-nowrap text-amber-600 dark:text-amber-400 cursor-pointer"
+                        @click="focusMainWindow">
+                        <Coffee class="w-4 h-4 shrink-0" />
+                        <span>On break</span>
+                    </div>
+                    <div v-else class="flex flex-col flex-1 min-w-0 gap-[3px] leading-[1.05]">
+                        <input
+                            v-if="isEditingDescription"
+                            ref="descriptionInput"
+                            v-model="descriptionDraft"
+                            type="text"
+                            autocomplete="off"
+                            class="h-[18px] w-full min-w-0 border-0 bg-transparent p-0 text-sm font-medium text-black outline-none ring-0 focus:ring-0"
+                            style="-webkit-app-region: no-drag"
+                            @input="handleDescriptionInput"
+                            @keydown="handleDescriptionKeydown"
+                            @blur="handleDescriptionBlur" />
+                        <button
+                            v-else
+                            type="button"
+                            class="truncate text-left text-sm font-medium disabled:cursor-default"
+                            :class="[
+                                shownDescription ? 'text-black' : 'text-black/20',
+                                canEditEntry ? 'cursor-text hover:bg-black/5 rounded-sm' : '',
+                            ]"
+                            :disabled="!canEditEntry"
+                            style="-webkit-app-region: no-drag"
+                            @click="startDescriptionEdit">
+                            {{ shownDescription ?? 'No Description' }}
+                        </button>
+                        <button
+                            type="button"
+                            class="flex items-center min-w-0 text-sm text-black text-left disabled:cursor-default"
+                            :class="canEditEntry ? 'cursor-pointer hover:bg-black/5 rounded-sm' : ''"
+                            :disabled="!canEditEntry"
+                            style="-webkit-app-region: no-drag"
+                            @click="openProjectTaskPicker">
+                            <span
+                                class="w-2.5 h-2.5 rounded-full shrink-0 mr-1.5"
+                                :style="{ backgroundColor: shownProject?.color ?? '#a1a1aa' }"></span>
+                            <span class="truncate shrink min-w-0">
+                                {{ shownProject?.name ?? 'No Project' }}
+                            </span>
+                            <template v-if="currentTask">
+                                <ChevronRightIcon
+                                    class="w-4 shrink-0 mx-0.5 text-black"></ChevronRightIcon>
+                                <span class="truncate shrink min-w-0">{{ currentTask.name }}</span>
+                            </template>
+                        </button>
+                    </div>
+                </div>
             </div>
-            <button
-                v-if="breaksEnabled && !isOnBreak && isRunning"
-                type="button"
-                title="Take a break"
-                aria-label="Take a break"
-                class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-quaternary text-text-tertiary hover:text-amber-500 focus:ring-2 focus:ring-border-tertiary transition"
-                @click="startBreak">
-                <Coffee class="w-[18px] h-[18px]" />
-            </button>
-            <TimeTrackerStartStop
-                class="shrink-0 scale-110 mx-0.5"
-                :active="isRunning"
-                :variant="isOnBreak ? 'break' : 'primary'"
-                size="small"
-                @changed="onToggleButtonPress"></TimeTrackerStartStop>
+
+            <div
+                class="pr-2.5 flex items-center space-x-1 min-w-0"
+                :class="isOnBreak ? 'flex-1 justify-end pl-2' : ''">
+                <button
+                    v-if="canResumeAfterBreak"
+                    type="button"
+                    class="flex min-w-0 shrink items-center gap-1 h-7 px-2 rounded-md bg-transparent border border-amber-500/40 hover:bg-amber-500/15 text-xs font-medium text-amber-600 dark:text-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition"
+                    @click="resumeAfterBreak">
+                    <Play class="w-3 h-3 shrink-0" />
+                    <span class="truncate">{{
+                        resumeDescription ? `Resume "${resumeDescription}"` : 'Resume'
+                    }}</span>
+                </button>
+                <div
+                    class="text-base font-semibold text-black px-2 w-[82px] shrink-0 text-left"
+                    style="-webkit-app-region: drag">
+                    {{ currentTimer }}
+                </div>
+                <button
+                    v-if="breaksEnabled && !isOnBreak && isRunning"
+                    type="button"
+                    title="Take a break"
+                    aria-label="Take a break"
+                    class="flex items-center justify-center w-8 h-8 shrink-0 rounded-full bg-quaternary text-text-tertiary hover:text-amber-500 focus:ring-2 focus:ring-border-tertiary transition"
+                    @click="startBreak">
+                    <Coffee class="w-[18px] h-[18px]" />
+                </button>
+                <TimeTrackerStartStop
+                    class="shrink-0 scale-110 mx-0.5"
+                    :active="isRunning"
+                    :variant="isOnBreak ? 'break' : 'primary'"
+                    size="small"
+                    @changed="onToggleButtonPress"></TimeTrackerStartStop>
+            </div>
         </div>
     </div>
 </template>

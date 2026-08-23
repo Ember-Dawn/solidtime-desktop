@@ -121,12 +121,11 @@ Project > Task
 
 当前设计：
 
-- 使用独立 frameless BrowserWindow，并通过 `showInactive()` 显示，使 popup 出现时不主动抢走 Description 输入框焦点；
-- History popup 本身保持可 focus / 可交互，避免 Windows 下 `focusable: false` 导致鼠标事件无法可靠送达；
+- History 不再使用独立 BrowserWindow，而是直接渲染在 Mini Widget 自己的 Vue renderer 中；这样 Description input 与 History 始终处于同一个窗口和焦点上下文，避免 Windows 下 `showInactive()` 首次鼠标点击被 native 激活过程吞掉；
 - 只有用户真正输入内容后才显示建议，不是单纯 focus 就弹出；
-- 支持方向键、Enter、Esc 和鼠标；鼠标选择在 `mousedown` 阶段立即提交；
-- `showInactive()` 的 History popup 第一次被鼠标激活时会让 Widget 的 Description input 先 blur；main process 会通过独立 interaction-state IPC 告知 Widget 当前正在与 History popup 交互，Widget 此时抑制普通 blur-save，避免 120 ms 自动保存把 popup 提前关闭；popup 选择、失焦或关闭后清除该状态；
-- Windows 首次激活 `showInactive()` popup 时，原始 DOM `mousedown` / `click` 可能都被 native 激活过程吞掉。History BrowserWindow 获得 focus 时，main process 会读取 `screen.getCursorScreenPoint()`，换算成 popup 本地坐标并发送给 popup renderer；renderer 使用 `document.elementFromPoint()` 找到实际 suggestion 按钮并触发现有 selection。普通 `mousedown` / `click` 仍作为窗口已激活后的兜底路径，并通过 renderer 内去重只允许一次 selection IPC；真正选中后仍按 `send selection → close popup` 交给 Widget，并把历史 Description + Project + Task 作为一个独立 TimeEntry 更新应用；
+- 支持方向键、Enter、Esc 和鼠标；鼠标选择在同一 renderer 内的 `mousedown` 阶段直接应用，不再经过 History popup → preload → main → Widget 的 selection IPC；
+- History 展开时，main process 只负责临时扩展 Mini Widget BrowserWindow 的高度；空间足够时向下展开，底部空间不足时向上展开并保持原 52-DIP Widget 区域位于扩展窗口底部；关闭 History 后恢复 52 DIP；
+- Windows `setShape()` 会跟随扩展后的实际窗口高度重新应用，避免 History 区域被旧的 52-DIP shape 裁掉或无法点击；
 - 建议数据来自最近一页 time entries，不是扫描全部历史数据库；
 - UI 最多显示 12 条；
 - 去重键是 `(description, project_id, task_id)`，所以相同 Description 在不同 Project/Task 下仍可分别出现；
@@ -164,17 +163,17 @@ Project 和 Task 在 Mini Widget 中使用一个联合选择器。
 
 ### 2.10 Popup 视觉与定位
 
-Description History popup 和 Project/Task Picker 当前统一为单层 popup 视觉：
+Project/Task Picker 继续使用独立 frameless BrowserWindow；Description History 则已经迁入 Mini Widget 自身 renderer。
 
-- BrowserWindow 的可见区域就是 popup 本体；
-- 不再采用“透明外层 padding + 内层 rounded card”的双框结构；
-- 与 Widget 左边缘对齐；
-- 宽度直接取当前 Widget 的实际 DIP bounds，不再让两个 popup 各自维护独立的固定宽度；
-- 在 Windows mixed-DPI 环境中，popup 显示后再次应用一次当前 Widget 相对 bounds，使 Electron 在目标显示器上重新计算 native pixel 尺寸；
-- 根据工作区空间自动选择显示在 Widget 上方或下方；
-- Description History 高度根据结果数量自适应并设置最大高度。
+当前视觉与定位约束：
 
-以后调整 popup 样式时，避免重新引入“框中框”的视觉。
+- Project/Task Picker 仍与 Widget 左边缘对齐，并跟随 Widget 当前实际 DIP 宽度；
+- Description History 与 52-DIP Widget 区域之间保留独立间隔和单层边框视觉，但技术上属于同一个 BrowserWindow；
+- History 高度根据结果数量自适应并设置最大高度，超出可用空间时内部滚动；
+- main process 根据当前显示器工作区自动决定 History 放在 Widget 上方还是下方，并通过 renderer placement 事件调整内部排列；
+- Windows mixed-DPI 下扩展后的 Mini Window 仍以 DIP bounds 为准，并重新应用覆盖完整窗口高度的 shape。
+
+以后调整 History 样式时，不要重新引入独立 `showInactive()` BrowserWindow。
 
 ### 2.11 Mixed-DPI 双屏修复
 
@@ -227,13 +226,13 @@ src/renderer/src/utils/useTimer.ts
 
 职责概览：
 
-- `src/main/miniWindow.ts`：Mini Widget BrowserWindow、两个 popup BrowserWindow、窗口尺寸/位置、mixed-DPI 和相关 IPC；
+- `src/main/miniWindow.ts`：Mini Widget BrowserWindow、Project/Task Picker BrowserWindow、History 展开/收起尺寸、mixed-DPI 和相关 IPC；
 - `src/main/mainWindow.ts`：主窗口 IPC 转发，包括 Widget / tray 的 timer 事件；
-- `src/preload/main.ts` / `src/preload/mini.ts` / `interface.d.ts`：主窗口、Mini / popup IPC bridge 与类型；
+- `src/preload/main.ts` / `src/preload/mini.ts` / `interface.d.ts`：主窗口、Mini / Project Picker IPC bridge、History 尺寸/placement bridge 与类型；
 - `src/renderer/src/mini.ts`：Mini renderer QueryClient、focusManager 和应用入口；
 - `MiniControls.vue`：Widget 主 UI、Description 编辑、历史建议、Project/Task 选择、timer 控件；
 - `ProjectTaskPicker.vue`：联合 Project/Task popup；
-- `DescriptionSuggestions.vue`：历史 Description + Project/Task 上下文 popup；
+- `DescriptionSuggestions.vue`：旧的独立 History popup renderer 文件；当前 History 已由 `MiniControls.vue` 直接渲染，不再由 main process 打开该窗口；
 - `MainTimeEntryTable.vue`：主 Time Tracker 数据查询、手动同步相关逻辑及 timer 主页面行为；
 - `listSorting.ts`：Project / Task 排序；
 - `main.ts`：主 renderer QueryClient / focusManager；
@@ -249,8 +248,8 @@ src/renderer/src/utils/useTimer.ts
 3. 不要删除约 180 ms 的 display-metrics settle 逻辑，除非替代实现已经在 mixed-DPI Windows 上验证。
 4. 不要把 Project 和 Task 的更新拆成可能产生非法组合的两个独立状态。
 5. 选择历史 Description 建议时，要保持“Description + Project + Task 一起恢复”的语义。
-6. Description History popup 出现时不要主动抢 Description 输入焦点，但窗口本身必须保持可交互；不要再用 `focusable: false`。Windows 首次点击 `showInactive()` popup 时必须保持 interaction-state blur 抑制，并保留 focus 时基于 `screen.getCursorScreenPoint()` → popup-local 坐标 → renderer `elementFromPoint()` 的 activation-click 恢复链路；普通 `mousedown` + `click` 仅作为兜底。选中后仍使用 `send selection → close popup`，且 selection 生效不能依赖 input 仍处于 editing 状态。
-7. Project/Task picker 和 Description History popup 不要重新塞回 52-DIP Widget 内部造成裁切；二者宽度应继续跟随 Widget 当前实际 bounds，并保持 mixed-DPI 显示后重校准。
+6. Description History 必须继续留在 Mini Widget 同一 renderer 中，不要重新改回独立 `showInactive()` BrowserWindow；History 展开/收起只通过 main process 调整 Mini Window bounds，鼠标选择直接在 `MiniControls.vue` 内应用。
+7. Project/Task Picker 继续使用独立窗口；Description History 展开时必须同步扩大 Mini Window 并让 Windows shape 覆盖完整高度，不能只增加 DOM 内容而保持 52-DIP native bounds/shape。
 8. `Ctrl+R` 在主应用内是 Sync，不是 renderer reload。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
 10. 修改 title bar 时要注意 Windows 原生 `_ / □ / ×` 区域，不要靠容易漂移的绝对定位重新制造错位。
@@ -501,7 +500,7 @@ npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64
 - `package.json` 的 `afterSign` / notarization 配置是否仍然存在，以及 Windows 本地 build 是否仍需 `--config electron-builder.yml`；
 - `.npmrc` 的 `min-release-age` 是否被当前 npm 正式支持；
 - Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；
-- Description History 是否仍可用鼠标左键和键盘选择，且 popup 出现时不会主动抢焦点；Windows 首次鼠标激活 History 时，interaction-state 是否能阻止 Description blur-save 提前关闭 popup，focus activation-click 的 cursor-point → `elementFromPoint()` 恢复链路是否能命中正确行，普通 `mousedown` / `click` 兜底是否只提交一次，并最终正确恢复 Description + Project + Task；
+- Description History 是否仍可用鼠标左键和键盘选择，输入期间焦点是否继续留在 Description input；History 是否在同一 Mini renderer 内直接应用并最终正确恢复 Description + Project + Task；展开/收起后 Mini Window bounds 与 Windows shape 是否同步正确；
 - Project/Task Picker 与 Description History 在不同 DPI 显示器上是否仍与 Widget 等宽；
 - 当前 fork 是否仍基于文档记录的 upstream release / commit；若升级基线，应同步更新 `0.3.x-cyan.N` 版本与建议 tag 命名；
 - 修改源码后是否先重新生成 `out/` 再打包，避免把旧 renderer / preload / main 产物重新封装进新的 EXE；
