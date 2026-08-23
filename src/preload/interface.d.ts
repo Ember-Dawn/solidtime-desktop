@@ -135,12 +135,14 @@ export interface IElectronAPI {
     onDescriptionSuggestionSelection: (
         callback: (suggestion: DescriptionSuggestion) => void
     ) => () => void
+    onDescriptionSuggestionInteractionChanged: (
+        callback: (active: boolean) => void
+    ) => () => void
     onDescriptionSuggestionsData: (
         callback: (data: DescriptionSuggestionsData) => void
     ) => () => void
     selectDescriptionSuggestion: (suggestion: DescriptionSuggestion) => void
     closeDescriptionSuggestions: () => void
-    miniDiagnosticLog: (message: string, data?: unknown) => void
 }
 
 declare global {

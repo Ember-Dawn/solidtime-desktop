@@ -55,29 +55,14 @@ const {
 function reconcileCurrentTimeEntry() {
     if (currentTimeEntryResponseIsError.value) {
         if (currentTimeEntry.value.id !== '') {
-            debugMiniSelection('[CurrentEntryDebug] query error cleared current entry',
-                debugEntrySnapshot(currentTimeEntry.value)
-            )
             currentTimeEntry.value = { ...emptyTimeEntry }
         }
         return
     }
 
     if (currentTimeEntryResponse.value?.data) {
-        const incomingEntry = currentTimeEntryResponse.value.data
-        const currentSnapshot = debugEntrySnapshot(currentTimeEntry.value)
-        const incomingSnapshot = debugEntrySnapshot(incomingEntry)
-        if (JSON.stringify(currentSnapshot) !== JSON.stringify(incomingSnapshot)) {
-            debugMiniSelection('[CurrentEntryDebug] query reconcile replacing local entry', {
-                current: currentSnapshot,
-                incoming: incomingSnapshot,
-            })
-        }
-        currentTimeEntry.value = { ...incomingEntry }
+        currentTimeEntry.value = { ...currentTimeEntryResponse.value.data }
     } else if (currentTimeEntry.value.id !== '') {
-        debugMiniSelection('[CurrentEntryDebug] query returned no active entry',
-            debugEntrySnapshot(currentTimeEntry.value)
-        )
         currentTimeEntry.value = { ...emptyTimeEntry }
     }
 }
@@ -108,21 +93,6 @@ const canResumeAfterBreak = computed(
 )
 
 const resumeDescription = computed(() => lastTimeEntry.value.description || null)
-
-function debugEntrySnapshot(entry: TimeEntry) {
-    return {
-        id: entry.id,
-        description: entry.description,
-        project_id: entry.project_id,
-        task_id: entry.task_id,
-        start: entry.start,
-        type: entry.type,
-    }
-}
-
-function debugMiniSelection(message: string, data?: unknown) {
-    window.electronAPI.miniDiagnosticLog(message, data)
-}
 
 function startBreak() {
     sendEventToWindow('main', 'startBreak')
@@ -227,6 +197,7 @@ const descriptionInput = ref<HTMLInputElement | null>(null)
 const activeDescriptionSuggestionIndex = ref(-1)
 const descriptionSuggestionsOpen = ref(false)
 const descriptionHasUserInput = ref(false)
+const descriptionSuggestionInteractionActive = ref(false)
 let descriptionBlurTimer: ReturnType<typeof setTimeout> | null = null
 
 const recentDescriptionSuggestions = computed<DescriptionSuggestion[]>(() => {
@@ -314,6 +285,7 @@ async function startDescriptionEdit() {
     descriptionDraft.value = currentTimeEntry.value.description ?? ''
     descriptionHasUserInput.value = false
     activeDescriptionSuggestionIndex.value = -1
+    descriptionSuggestionInteractionActive.value = false
     isEditingDescription.value = true
     await nextTick()
     descriptionInput.value?.focus()
@@ -326,25 +298,14 @@ function cancelDescriptionEdit() {
         descriptionBlurTimer = null
     }
     closeDescriptionSuggestions()
+    descriptionSuggestionInteractionActive.value = false
     isEditingDescription.value = false
     descriptionHasUserInput.value = false
     descriptionDraft.value = ''
 }
 
-async function updateCurrentEntry(
-    changes: Partial<TimeEntry>,
-    debugSource?: 'HistoryDebug' | 'ProjectDebug'
-) {
-    if (!canEditEntry.value || !currentTimeEntry.value.id) {
-        if (debugSource) {
-            debugMiniSelection(`[${debugSource} 5 BLOCKED] updateCurrentEntry guard failed`, {
-                canEditEntry: canEditEntry.value,
-                current: debugEntrySnapshot(currentTimeEntry.value),
-                changes,
-            })
-        }
-        return
-    }
+async function updateCurrentEntry(changes: Partial<TimeEntry>) {
+    if (!canEditEntry.value || !currentTimeEntry.value.id) return
 
     const previousEntry = { ...currentTimeEntry.value }
     const updatedEntry = {
@@ -352,28 +313,10 @@ async function updateCurrentEntry(
         ...changes,
     }
     currentTimeEntry.value = updatedEntry
-    if (debugSource) {
-        debugMiniSelection(`[${debugSource} 5] local currentTimeEntry updated`, {
-            previous: debugEntrySnapshot(previousEntry),
-            updated: debugEntrySnapshot(updatedEntry),
-        })
-    }
 
     try {
         await currentTimeEntryUpdateMutation.mutateAsync(updatedEntry)
-        if (debugSource) {
-            debugMiniSelection(`[${debugSource} 6] mutation success`,
-                debugEntrySnapshot(updatedEntry)
-            )
-        }
-    } catch (error) {
-        if (debugSource) {
-            debugMiniSelection(`[${debugSource} ERROR] mutation failed; restoring previous entry`, {
-                error: error instanceof Error ? error.message : String(error),
-                previous: debugEntrySnapshot(previousEntry),
-                attempted: debugEntrySnapshot(updatedEntry),
-            })
-        }
+    } catch {
         currentTimeEntry.value = previousEntry
     }
 }
@@ -399,26 +342,18 @@ async function saveDescription() {
 
 async function applyDescriptionSuggestion(
     suggestion: DescriptionSuggestion,
-    popupAlreadyClosed = false
+    popupCloseHandledByMain = false
 ) {
     // A history pick is an authoritative TimeEntry update, not an input-focus
     // side effect. Mouse selection may arrive after the input blur path has
-    // already ended edit mode, so it must not depend on isEditingDescription.
-    debugMiniSelection('[HistoryDebug 4] applyDescriptionSuggestion entered', {
-        suggestion,
-        canEditEntry: canEditEntry.value,
-        isEditingDescription: isEditingDescription.value,
-        current: debugEntrySnapshot(currentTimeEntry.value),
-    })
-    if (!canEditEntry.value) {
-        debugMiniSelection('[HistoryDebug 4 BLOCKED] current entry is not editable')
-        return
-    }
+    // already started, so it must not depend on isEditingDescription.
+    if (!canEditEntry.value) return
     if (descriptionBlurTimer) {
         clearTimeout(descriptionBlurTimer)
         descriptionBlurTimer = null
     }
-    if (popupAlreadyClosed) {
+    descriptionSuggestionInteractionActive.value = false
+    if (popupCloseHandledByMain) {
         descriptionSuggestionsOpen.value = false
         activeDescriptionSuggestionIndex.value = -1
     } else {
@@ -427,14 +362,11 @@ async function applyDescriptionSuggestion(
     isEditingDescription.value = false
     descriptionHasUserInput.value = false
     descriptionDraft.value = ''
-    await updateCurrentEntry(
-        {
-            description: suggestion.description,
-            project_id: suggestion.projectId,
-            task_id: suggestion.taskId,
-        },
-        'HistoryDebug'
-    )
+    await updateCurrentEntry({
+        description: suggestion.description,
+        project_id: suggestion.projectId,
+        task_id: suggestion.taskId,
+    })
     void refetchDescriptionHistory()
 }
 
@@ -491,6 +423,10 @@ function handleDescriptionBlur() {
     }
     descriptionBlurTimer = setTimeout(() => {
         descriptionBlurTimer = null
+        // The first click on a showInactive() History BrowserWindow activates
+        // that window and blurs this input before its renderer necessarily gets
+        // the mouse event. Keep the draft alive while the popup is being used.
+        if (descriptionSuggestionInteractionActive.value) return
         if (isEditingDescription.value) {
             void saveDescription()
         }
@@ -524,30 +460,20 @@ function openProjectTaskPicker() {
 
 let removeProjectTaskPickerSelectionListener: (() => void) | null = null
 let removeDescriptionSuggestionSelectionListener: (() => void) | null = null
+let removeDescriptionSuggestionInteractionListener: (() => void) | null = null
 
 onMounted(() => {
     removeProjectTaskPickerSelectionListener = window.electronAPI.onProjectTaskPickerSelection(
         (selection) => {
-            debugMiniSelection('[ProjectDebug 3] widget received selection', {
-                selection,
-                canEditEntry: canEditEntry.value,
-                current: debugEntrySnapshot(currentTimeEntry.value),
-            })
-            if (!canEditEntry.value) {
-                debugMiniSelection('[ProjectDebug 3 BLOCKED] current entry is not editable')
-                return
-            }
+            if (!canEditEntry.value) return
 
             if (selection.taskId) {
                 const selectedTask = tasks.value?.find((task) => task.id === selection.taskId)
                 if (!selectedTask) return
-                void updateCurrentEntry(
-                    {
-                        project_id: selectedTask.project_id,
-                        task_id: selectedTask.id,
-                    },
-                    'ProjectDebug'
-                )
+                void updateCurrentEntry({
+                    project_id: selectedTask.project_id,
+                    task_id: selectedTask.id,
+                })
                 return
             }
 
@@ -560,25 +486,32 @@ onMounted(() => {
 
             // Selecting a project by itself always clears the old task. This
             // prevents an invalid project/task combination from reaching the API.
-            void updateCurrentEntry(
-                {
-                    project_id: selection.projectId,
-                    task_id: null,
-                },
-                'ProjectDebug'
-            )
+            void updateCurrentEntry({
+                project_id: selection.projectId,
+                task_id: null,
+            })
         }
     )
 
     removeDescriptionSuggestionSelectionListener =
         window.electronAPI.onDescriptionSuggestionSelection((suggestion) => {
-            debugMiniSelection('[HistoryDebug 3] widget received selection', {
-                suggestion,
-                canEditEntry: canEditEntry.value,
-                isEditingDescription: isEditingDescription.value,
-                current: debugEntrySnapshot(currentTimeEntry.value),
-            })
             void applyDescriptionSuggestion(suggestion, true)
+        })
+
+    removeDescriptionSuggestionInteractionListener =
+        window.electronAPI.onDescriptionSuggestionInteractionChanged((active) => {
+            descriptionSuggestionInteractionActive.value = active
+            if (active && descriptionBlurTimer) {
+                clearTimeout(descriptionBlurTimer)
+                descriptionBlurTimer = null
+            }
+            if (
+                !active &&
+                isEditingDescription.value &&
+                document.activeElement !== descriptionInput.value
+            ) {
+                void saveDescription()
+            }
         })
 })
 
@@ -596,6 +529,7 @@ onBeforeUnmount(() => {
     closeDescriptionSuggestions()
     removeProjectTaskPickerSelectionListener?.()
     removeDescriptionSuggestionSelectionListener?.()
+    removeDescriptionSuggestionInteractionListener?.()
 })
 </script>
 

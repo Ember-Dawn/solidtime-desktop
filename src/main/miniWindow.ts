@@ -220,7 +220,20 @@ function openDescriptionSuggestions(
 
     descriptionSuggestionsWindow = suggestionsWindow
     suggestionsWindow.setAutoHideMenuBar(true)
+    suggestionsWindow.on('focus', () => {
+        if (!miniWindow.isDestroyed()) {
+            miniWindow.webContents.send('descriptionSuggestionInteractionChanged', true)
+        }
+    })
+    suggestionsWindow.on('blur', () => {
+        if (descriptionSuggestionsWindow === suggestionsWindow) {
+            closeDescriptionSuggestions()
+        }
+    })
     suggestionsWindow.once('closed', () => {
+        if (!miniWindow.isDestroyed()) {
+            miniWindow.webContents.send('descriptionSuggestionInteractionChanged', false)
+        }
         if (descriptionSuggestionsWindow === suggestionsWindow) {
             descriptionSuggestionsWindow = null
         }
@@ -402,9 +415,7 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
     })
     ipcMain.on('projectTaskPickerSelect', (event, selection: ProjectTaskPickerSelection) => {
         if (!projectTaskPickerWindow || event.sender !== projectTaskPickerWindow.webContents) return
-        console.log('[ProjectDebug 1] main received selection', selection)
         miniWindow.webContents.send('projectTaskPickerSelection', selection)
-        console.log('[ProjectDebug 2] main sent selection to widget')
         closeProjectTaskPicker()
     })
     ipcMain.on('closeProjectTaskPicker', (event) => {
@@ -430,18 +441,8 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
         // Match the proven Project/Task picker ordering: deliver the explicit
         // selection to the Widget first, then close the popup. Avoid extra focus
         // or event-loop hops that can introduce additional refetch/blur races.
-        console.log('[HistoryDebug 1] main received selection', suggestion)
         miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
-        console.log('[HistoryDebug 2] main sent selection to widget')
         closeDescriptionSuggestions()
-    })
-    ipcMain.on('miniDiagnosticLog', (event, message: string, data?: unknown) => {
-        if (event.sender !== miniWindow.webContents) return
-        if (data === undefined) {
-            console.log(message)
-        } else {
-            console.log(message, data)
-        }
     })
     ipcMain.on('closeDescriptionSuggestions', (event) => {
         if (event.sender === miniWindow.webContents) {
