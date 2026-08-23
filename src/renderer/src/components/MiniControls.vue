@@ -337,16 +337,24 @@ async function saveDescription() {
     await commitDescription(descriptionDraft.value)
 }
 
-async function commitDescriptionSuggestion(suggestion: DescriptionSuggestion) {
-    // A mouse selection may arrive after the input blur path has already ended
-    // edit mode. The popup selection itself is authoritative as long as the
-    // current work entry is still editable.
+async function applyDescriptionSuggestion(
+    suggestion: DescriptionSuggestion,
+    popupAlreadyClosed = false
+) {
+    // A history pick is an authoritative TimeEntry update, not an input-focus
+    // side effect. Mouse selection may arrive after the input blur path has
+    // already ended edit mode, so it must not depend on isEditingDescription.
     if (!canEditEntry.value) return
     if (descriptionBlurTimer) {
         clearTimeout(descriptionBlurTimer)
         descriptionBlurTimer = null
     }
-    closeDescriptionSuggestions()
+    if (popupAlreadyClosed) {
+        descriptionSuggestionsOpen.value = false
+        activeDescriptionSuggestionIndex.value = -1
+    } else {
+        closeDescriptionSuggestions()
+    }
     isEditingDescription.value = false
     descriptionHasUserInput.value = false
     descriptionDraft.value = ''
@@ -392,7 +400,7 @@ function handleDescriptionKeydown(event: KeyboardEvent) {
         event.preventDefault()
         const selected = suggestions[activeDescriptionSuggestionIndex.value]
         if (selected) {
-            void commitDescriptionSuggestion(selected)
+            void applyDescriptionSuggestion(selected)
         } else {
             void commitDescription(descriptionDraft.value)
         }
@@ -478,13 +486,10 @@ onMounted(() => {
 
     removeDescriptionSuggestionSelectionListener =
         window.electronAPI.onDescriptionSuggestionSelection((suggestion) => {
-            if (!canEditEntry.value) return
-            if (descriptionBlurTimer) {
-                clearTimeout(descriptionBlurTimer)
-                descriptionBlurTimer = null
-            }
-            descriptionDraft.value = suggestion.description ?? ''
-            void commitDescriptionSuggestion(suggestion)
+            // The main process has already closed the popup and restored Widget
+            // focus before delivering this message. Apply the selected history
+            // entry directly, independent of the input's edit/blur state.
+            void applyDescriptionSuggestion(suggestion, true)
         })
 })
 

@@ -424,9 +424,20 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
         ) {
             return
         }
-        // Let the Widget close the popup only after it receives and applies the
-        // selection. Closing here can race with the Widget input blur path.
-        miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
+
+        // Treat a mouse history pick like the Project/Task picker: finish the
+        // popup interaction first, return focus to the Widget, then deliver the
+        // authoritative selection on the next event-loop turn. This keeps the
+        // popup renderer lifetime and the Widget's Description blur lifecycle
+        // from racing each other.
+        closeDescriptionSuggestions()
+        if (miniWindow.isDestroyed()) return
+        miniWindow.focus()
+        setImmediate(() => {
+            if (!miniWindow.isDestroyed()) {
+                miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
+            }
+        })
     })
     ipcMain.on('closeDescriptionSuggestions', (event) => {
         if (event.sender === miniWindow.webContents) {
