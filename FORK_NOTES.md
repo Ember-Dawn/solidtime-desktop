@@ -121,9 +121,11 @@ Project > Task
 
 当前设计：
 
-- 使用独立、非 focusable 的 frameless BrowserWindow，避免 Description 输入框失去键盘焦点；
+- 使用独立 frameless BrowserWindow，并通过 `showInactive()` 显示，使 popup 出现时不主动抢走 Description 输入框焦点；
+- History popup 本身保持可 focus / 可交互，避免 Windows 下 `focusable: false` 导致鼠标事件无法可靠送达；
 - 只有用户真正输入内容后才显示建议，不是单纯 focus 就弹出；
-- 支持方向键、Enter、Esc 和鼠标；鼠标选择在 `mousedown` 阶段立即提交，避免非 focusable popup 在 Windows 上出现按下后 `click` 未可靠送达的问题；
+- 支持方向键、Enter、Esc 和鼠标；鼠标选择在 `mousedown` 阶段立即提交；
+- 鼠标主动点击建议项时，Widget 侧已有约 120 ms 的 blur-save 延时，并在收到历史选择 IPC 后先取消该延时，再应用历史项，避免把当前草稿抢先保存；
 - 建议数据来自最近一页 time entries，不是扫描全部历史数据库；
 - UI 最多显示 12 条；
 - 去重键是 `(description, project_id, task_id)`，所以相同 Description 在不同 Project/Task 下仍可分别出现；
@@ -246,7 +248,7 @@ src/renderer/src/utils/useTimer.ts
 3. 不要删除约 180 ms 的 display-metrics settle 逻辑，除非替代实现已经在 mixed-DPI Windows 上验证。
 4. 不要把 Project 和 Task 的更新拆成可能产生非法组合的两个独立状态。
 5. 选择历史 Description 建议时，要保持“Description + Project + Task 一起恢复”的语义。
-6. Description History popup 必须保持不抢 Description 输入框焦点，同时鼠标左键必须能够直接选择建议项。
+6. Description History popup 出现时不要主动抢 Description 输入焦点，但窗口本身必须保持可交互；不要再用 `focusable: false` 破坏 Windows 鼠标选择。
 7. Project/Task picker 和 Description History popup 不要重新塞回 52-DIP Widget 内部造成裁切；二者宽度应继续跟随 Widget 当前实际 bounds，并保持 mixed-DPI 显示后重校准。
 8. `Ctrl+R` 在主应用内是 Sync，不是 renderer reload。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
@@ -498,7 +500,7 @@ npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64
 - `package.json` 的 `afterSign` / notarization 配置是否仍然存在，以及 Windows 本地 build 是否仍需 `--config electron-builder.yml`；
 - `.npmrc` 的 `min-release-age` 是否被当前 npm 正式支持；
 - Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；
-- Description History 是否仍可用鼠标左键和键盘选择，且鼠标操作不会抢走 Description 输入焦点；
+- Description History 是否仍可用鼠标左键和键盘选择，且 popup 出现时不会主动抢焦点；鼠标主动点击建议时应能可靠交互并正确应用历史项；
 - Project/Task Picker 与 Description History 在不同 DPI 显示器上是否仍与 Widget 等宽；
 - 当前 fork 是否仍基于文档记录的 upstream release / commit；若升级基线，应同步更新 `0.3.x-cyan.N` 版本与建议 tag 命名；
 - 修改源码后是否先重新生成 `out/` 再打包，避免把旧 renderer / preload / main 产物重新封装进新的 EXE；

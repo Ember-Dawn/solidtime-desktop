@@ -211,7 +211,6 @@ function openDescriptionSuggestions(
         hasShadow: true,
         skipTaskbar: true,
         alwaysOnTop: true,
-        focusable: false,
         parent: miniWindow,
         webPreferences: {
             preload: join(__dirname, '../preload/mini.mjs'),
@@ -233,6 +232,8 @@ function openDescriptionSuggestions(
         showPopupWithCurrentDisplayBounds(
             suggestionsWindow,
             () => getDescriptionSuggestionsBounds(miniWindow, data.suggestions.length),
+            // Keep the editor focused when the popup first appears, while leaving
+            // the window focusable so an explicit mouse click can be delivered.
             () => suggestionsWindow.showInactive()
         )
     })
