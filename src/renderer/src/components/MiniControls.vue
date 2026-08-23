@@ -338,7 +338,10 @@ async function saveDescription() {
 }
 
 async function commitDescriptionSuggestion(suggestion: DescriptionSuggestion) {
-    if (!isEditingDescription.value) return
+    // A mouse selection may arrive after the input blur path has already ended
+    // edit mode. The popup selection itself is authoritative as long as the
+    // current work entry is still editable.
+    if (!canEditEntry.value) return
     if (descriptionBlurTimer) {
         clearTimeout(descriptionBlurTimer)
         descriptionBlurTimer = null
@@ -475,7 +478,7 @@ onMounted(() => {
 
     removeDescriptionSuggestionSelectionListener =
         window.electronAPI.onDescriptionSuggestionSelection((suggestion) => {
-            if (!isEditingDescription.value || !canEditEntry.value) return
+            if (!canEditEntry.value) return
             if (descriptionBlurTimer) {
                 clearTimeout(descriptionBlurTimer)
                 descriptionBlurTimer = null

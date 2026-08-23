@@ -424,8 +424,9 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
         ) {
             return
         }
+        // Let the Widget close the popup only after it receives and applies the
+        // selection. Closing here can race with the Widget input blur path.
         miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
-        closeDescriptionSuggestions()
     })
     ipcMain.on('closeDescriptionSuggestions', (event) => {
         if (event.sender === miniWindow.webContents) {
