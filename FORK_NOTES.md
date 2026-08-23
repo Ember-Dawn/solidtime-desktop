@@ -33,13 +33,14 @@
 
 ### 2.2 `Ctrl+R` 手动同步
 
-Windows 主窗口将 `Ctrl+R` 作为“Sync now”快捷键：
+主窗口和 Mini Widget 都将 `Ctrl+R` 作为“Sync now”快捷键：
 
-- 拦截 Chromium / Electron 默认 reload；
+- 两个 renderer 都拦截 Chromium / Electron 默认 reload；
 - 不刷新 renderer 页面；
-- 触发与 Sync 按钮相同的手动同步逻辑。
+- 主窗口 `Ctrl+R` 触发与 Sync 按钮相同的 active-query refetch；
+- Widget `Ctrl+R` 则对 Widget 自己独立的 QueryClient 执行 `refetchQueries({ type: 'active' })`，因此会刷新当前计时、Project/Task 和已激活的 Description History 等 Widget 查询。
 
-不要把它改回浏览器式页面 reload，除非明确重新设计快捷键。
+Widget 是独立 Vue App / QueryClient，所以不能假设主窗口的 `Ctrl+R` 处理会自动作用到 Widget。不要把任一窗口的 `Ctrl+R` 改回浏览器式页面 reload，除非明确重新设计快捷键。
 
 ### 2.3 主窗口与 Widget 的 focus 自动同步
 
@@ -56,7 +57,7 @@ Mini Widget 是独立 BrowserWindow、独立 Vue App、独立 QueryClient，因�
 
 - 手机上修改/停止计时后，回到主窗口会自动检查更新；
 - 手机上修改/停止计时后，重新点击 Widget 也会自动检查更新；
-- 仍可用主窗口 Sync / `Ctrl+R` 做显式强制刷新。
+- 仍可用主窗口 Sync / `Ctrl+R` 做显式强制刷新；Widget 聚焦时也可用自己的 `Ctrl+R` 刷新 Widget active queries。
 
 ### 2.4 Project / Task 排序
 
@@ -250,7 +251,7 @@ src/renderer/src/utils/useTimer.ts
 5. 选择历史 Description 建议时，要保持“Description + Project + Task 一起恢复”的语义。
 6. Description History 必须继续留在 Mini Widget 同一 renderer 中，不要重新改回独立 `showInactive()` BrowserWindow；History 展开/收起只通过 main process 调整 Mini Window bounds，鼠标选择直接在 `MiniControls.vue` 内应用。
 7. Project/Task Picker 继续使用独立窗口；Description History 展开时必须同步扩大 Mini Window 并让 Windows shape 覆盖完整高度，不能只增加 DOM 内容而保持 52-DIP native bounds/shape。
-8. `Ctrl+R` 在主应用内是 Sync，不是 renderer reload。
+8. `Ctrl+R` 在主窗口和 Mini Widget 内都是 Sync，不是 renderer reload；两者分别刷新各自 QueryClient 的 active queries。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
 10. 修改 title bar 时要注意 Windows 原生 `_ / □ / ×` 区域，不要靠容易漂移的绝对定位重新制造错位。
 11. Widget Stop 不应主动显示主窗口；Widget 普通 Start 必须保持空白新建，而 tray Continue 才恢复上一条 entry。
@@ -499,7 +500,7 @@ npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64
 - `electron-builder` 是否已经修复当前 npm dependency scanning 问题；
 - `package.json` 的 `afterSign` / notarization 配置是否仍然存在，以及 Windows 本地 build 是否仍需 `--config electron-builder.yml`；
 - `.npmrc` 的 `min-release-age` 是否被当前 npm 正式支持；
-- Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；
+- Win11 x64 NSIS 安装包能否正常安装、启动、显示 Widget、跨屏拖动并完成同步；主窗口和 Widget 聚焦时的 `Ctrl+R` 是否都只执行 active-query refetch 而不 reload renderer；
 - Description History 是否仍可用鼠标左键和键盘选择，输入期间焦点是否继续留在 Description input；History 是否在同一 Mini renderer 内直接应用并最终正确恢复 Description + Project + Task；展开/收起后 Mini Window bounds 与 Windows shape 是否同步正确；
 - Project/Task Picker 与 Description History 在不同 DPI 显示器上是否仍与 Widget 等宽；
 - 当前 fork 是否仍基于文档记录的 upstream release / commit；若升级基线，应同步更新 `0.3.x-cyan.N` 版本与建议 tag 命名；

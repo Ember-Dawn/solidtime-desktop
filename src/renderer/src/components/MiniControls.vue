@@ -5,14 +5,14 @@ import { time, TimeTrackerStartStop } from '@solidtime/ui'
 import { useLiveTimer } from '../utils/liveTimer'
 import { useMyMemberships } from '../utils/myMemberships'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
-import { useStorage } from '@vueuse/core'
+import { useEventListener, useStorage } from '@vueuse/core'
 import {
     emptyTimeEntry,
     getCurrentTimeEntry,
     getTimeEntriesPage,
     useCurrentTimeEntryUpdateMutation,
 } from '../utils/timeEntries'
-import { useIsMutating, useQuery } from '@tanstack/vue-query'
+import { useIsMutating, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { getAllProjects } from '../utils/projects'
 import { getAllTasks } from '../utils/tasks'
 import { sendEventToWindow } from '../utils/events'
@@ -33,6 +33,7 @@ interface DescriptionSuggestion {
 }
 
 const { currentOrganizationId, memberships } = useMyMemberships()
+const queryClient = useQueryClient()
 const currentTimeEntry = useStorage('currentTimeEntry', { ...emptyTimeEntry })
 const lastTimeEntry = useStorage('lastTimeEntry', { ...emptyTimeEntry })
 const currentTimeEntryUpdateMutation = useCurrentTimeEntryUpdateMutation()
@@ -190,6 +191,34 @@ const currentTimer = computed(() => {
     }
     return '00:00:00'
 })
+
+const isSyncing = ref(false)
+
+async function syncServerData() {
+    if (isSyncing.value) return
+
+    isSyncing.value = true
+    try {
+        await queryClient.refetchQueries({ type: 'active' })
+    } finally {
+        isSyncing.value = false
+    }
+}
+
+function handleSyncShortcut(event: KeyboardEvent) {
+    if (
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'r'
+    ) {
+        event.preventDefault()
+        void syncServerData()
+    }
+}
+
+useEventListener(window, 'keydown', handleSyncShortcut)
 
 const isEditingDescription = ref(false)
 const descriptionDraft = ref('')
