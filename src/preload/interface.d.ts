@@ -140,6 +140,7 @@ export interface IElectronAPI {
     ) => () => void
     selectDescriptionSuggestion: (suggestion: DescriptionSuggestion) => void
     closeDescriptionSuggestions: () => void
+    miniDiagnosticLog: (message: string, data?: unknown) => void
 }
 
 declare global {

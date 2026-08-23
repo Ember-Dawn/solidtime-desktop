@@ -54,6 +54,8 @@ if (process.contextIsolated) {
             selectDescriptionSuggestion: (suggestion: unknown) =>
                 ipcRenderer.send('descriptionSuggestionSelect', suggestion),
             closeDescriptionSuggestions: () => ipcRenderer.send('closeDescriptionSuggestions'),
+            miniDiagnosticLog: (message: string, data?: unknown) =>
+                ipcRenderer.send('miniDiagnosticLog', message, data),
         })
     } catch (error) {
         console.error(error)
