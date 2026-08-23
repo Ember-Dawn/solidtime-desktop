@@ -425,19 +425,11 @@ export function registerMiniWindowListeners(miniWindow: BrowserWindow) {
             return
         }
 
-        // Treat a mouse history pick like the Project/Task picker: finish the
-        // popup interaction first, return focus to the Widget, then deliver the
-        // authoritative selection on the next event-loop turn. This keeps the
-        // popup renderer lifetime and the Widget's Description blur lifecycle
-        // from racing each other.
+        // Match the proven Project/Task picker ordering: deliver the explicit
+        // selection to the Widget first, then close the popup. Avoid extra focus
+        // or event-loop hops that can introduce additional refetch/blur races.
+        miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
         closeDescriptionSuggestions()
-        if (miniWindow.isDestroyed()) return
-        miniWindow.focus()
-        setImmediate(() => {
-            if (!miniWindow.isDestroyed()) {
-                miniWindow.webContents.send('descriptionSuggestionSelection', suggestion)
-            }
-        })
     })
     ipcMain.on('closeDescriptionSuggestions', (event) => {
         if (event.sender === miniWindow.webContents) {
