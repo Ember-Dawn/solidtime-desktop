@@ -103,6 +103,8 @@ Project > Task
 
 这只是“显示清空”。不要为了实现 idle UI 而删除内部 `lastTimeEntry`，因为恢复计时、break/resume、tray 等逻辑仍可能依赖它。
 
+停止过程还带有按 time-entry ID 匹配的短期 stop guard：本地乐观清空后，如果 Widget 的 `currentTimeEntry` 查询短暂返回刚刚停止的同一条旧 entry，会忽略这次陈旧回写，直到服务器明确返回无 active entry 或返回另一条新的 active entry。guard 只用于阻止旧 entry 闪回，不阻止真实的新计时接管；异常退出遗留的 guard 带有过期兜底，避免永久屏蔽服务器状态。
+
 ### 2.7 Description 内联编辑
 
 普通正在运行的 work timer 支持直接在 Mini Widget 内编辑 Description：
@@ -223,6 +225,7 @@ src/renderer/src/utils/listSorting.ts
 src/renderer/src/main.ts
 src/renderer/src/App.vue
 src/renderer/src/utils/useTimer.ts
+src/renderer/src/utils/timerSyncState.ts
 ```
 
 职责概览：
@@ -238,7 +241,8 @@ src/renderer/src/utils/useTimer.ts
 - `listSorting.ts`：Project / Task 排序；
 - `main.ts`：主 renderer QueryClient / focusManager；
 - `App.vue`：主窗口顶栏、全局应用壳层、timer 全局事件，并区分 Widget blank start 与 tray continue；
-- `useTimer.ts`：`startTimer`、`continueLastTimer`、stop、break/resume 等共享 timer 语义。
+- `useTimer.ts`：`startTimer`、`continueLastTimer`、stop、break/resume 等共享 timer 语义；
+- `timerSyncState.ts`：跨 renderer 持久化短期 stop guard，防止刚停止的同一条 active entry 被 Widget 的陈旧查询结果短暂写回。
 
 ## 4. 不要轻易破坏的行为
 
@@ -255,6 +259,7 @@ src/renderer/src/utils/useTimer.ts
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
 10. 修改 title bar 时要注意 Windows 原生 `_ / □ / ×` 区域，不要靠容易漂移的绝对定位重新制造错位。
 11. Widget Stop 不应主动显示主窗口；Widget 普通 Start 必须保持空白新建，而 tray Continue 才恢复上一条 entry。
+12. Widget 停止后的同步必须继续按 entry ID 忽略刚停止的同一条陈旧 active entry；服务器确认无 active entry 或返回不同的新 entry 后应解除 guard，不能用固定 UI 延迟代替状态一致性处理。
 
 ## 5. Windows 11 x64 本地构建
 

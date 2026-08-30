@@ -20,6 +20,7 @@ import { showMainWindow } from '../utils/window'
 import { dayjs } from '../utils/dayjs'
 import { useBreaksEnabled } from '../utils/organization'
 import { projectSortOrder, sortNamedItems, taskSortOrder } from '../utils/listSorting'
+import { useStoppingTimeEntryGuard } from '../utils/timerSyncState'
 import type { TimeEntry } from '@solidtime/api'
 const { liveTimer, startLiveTimer, stopLiveTimer } = useLiveTimer()
 
@@ -36,6 +37,8 @@ const { currentOrganizationId, memberships } = useMyMemberships()
 const queryClient = useQueryClient()
 const currentTimeEntry = useStorage('currentTimeEntry', { ...emptyTimeEntry })
 const lastTimeEntry = useStorage('lastTimeEntry', { ...emptyTimeEntry })
+const { stoppingTimeEntryId, clearStoppingTimeEntry, isStoppingTimeEntry } =
+    useStoppingTimeEntryGuard()
 const currentTimeEntryUpdateMutation = useCurrentTimeEntryUpdateMutation()
 const pendingTimeEntryMutations = useIsMutating({
     predicate: (mutation) => mutation.options.scope?.id === 'timeEntry',
@@ -61,10 +64,23 @@ function reconcileCurrentTimeEntry() {
         return
     }
 
-    if (currentTimeEntryResponse.value?.data) {
-        currentTimeEntry.value = { ...currentTimeEntryResponse.value.data }
-    } else if (currentTimeEntry.value.id !== '') {
-        currentTimeEntry.value = { ...emptyTimeEntry }
+    const serverEntry = currentTimeEntryResponse.value?.data
+
+    if (serverEntry) {
+        if (isStoppingTimeEntry(serverEntry.id)) {
+            return
+        }
+        if (stoppingTimeEntryId.value) {
+            clearStoppingTimeEntry()
+        }
+        currentTimeEntry.value = { ...serverEntry }
+    } else {
+        if (stoppingTimeEntryId.value) {
+            clearStoppingTimeEntry()
+        }
+        if (currentTimeEntry.value.id !== '') {
+            currentTimeEntry.value = { ...emptyTimeEntry }
+        }
     }
 }
 

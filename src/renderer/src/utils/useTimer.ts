@@ -10,6 +10,7 @@ import {
 import { currentMembershipId, useMyMemberships } from './myMemberships.ts'
 import { dayjs } from './dayjs.ts'
 import type { Dayjs } from 'dayjs'
+import { useStoppingTimeEntryGuard } from './timerSyncState.ts'
 
 /**
  * Time entries are loaded newest-first. Ignore scheduled entries so resuming after a break
@@ -53,6 +54,7 @@ export function useTimer() {
     const queryClient = useQueryClient()
 
     const { memberships, currentOrganizationId } = useMyMemberships()
+    const { markStoppingTimeEntry, clearStoppingTimeEntry } = useStoppingTimeEntryGuard()
 
     /**
      * Check if there's an active timer running
@@ -95,6 +97,7 @@ export function useTimer() {
         if (matchingMembershipId) {
             currentMembershipId.value = matchingMembershipId
         }
+        markStoppingTimeEntry(stoppedTimeEntry.id)
         currentTimeEntry.value = { ...emptyTimeEntry }
 
         try {
@@ -103,6 +106,7 @@ export function useTimer() {
                 end: endTime ? dayjs(endTime).utc().format() : dayjs().utc().format(),
             })
         } catch (error) {
+            clearStoppingTimeEntry(stoppedTimeEntry.id)
             // The server still has this entry running — put the UI back in
             // sync, unless another entry (e.g. a break) was started meanwhile
             if (currentTimeEntry.value.start === '' && currentTimeEntry.value.id === '') {
