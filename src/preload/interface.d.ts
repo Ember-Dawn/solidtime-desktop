@@ -1,3 +1,5 @@
+import type { TimeEntry } from '@solidtime/api'
+
 export interface AppSettings {
     widgetActivated: boolean
     trayTimerActivated: boolean
@@ -79,13 +81,13 @@ export interface IElectronAPI {
     onUpdateNotAvailable: (callback: () => void) => void
     installUpdate: () => void
     startTimer: (startBlank?: boolean) => void
-    stopTimer: () => void
+    stopTimer: (timeEntry?: TimeEntry) => void
     startBreak: () => void
     resumeAfterBreak: () => void
     onOpenDeeplink: (callback: (url: string) => Promise<void>) => void
     onAutoUpdaterError: (callback: (error: string | undefined) => Promise<void>) => void
     onStartTimer: (callback: (startBlank?: boolean) => void) => void
-    onStopTimer: (callback: () => void) => void
+    onStopTimer: (callback: (timeEntry?: TimeEntry) => void) => void
     onStartBreak: (callback: () => void) => void
     onResumeAfterBreak: (callback: () => void) => void
     updateTrayState: (timeEntry: string, showTimer: boolean) => void

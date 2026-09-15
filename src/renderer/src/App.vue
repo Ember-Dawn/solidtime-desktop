@@ -131,8 +131,8 @@ onMounted(async () => {
             continueLastTimer()
         }
     })
-    await listenForBackendEvent('stopTimer', () => {
-        stopTimer()
+    window.electronAPI.onStopTimer((timeEntry) => {
+        stopTimer(undefined, timeEntry)
     })
     await listenForBackendEvent('startBreak', () => {
         startBreak()

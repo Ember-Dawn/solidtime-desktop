@@ -199,6 +199,7 @@ Mini Widget 已针对 Windows 多显示器不同缩放比例处理过拖动问�
 Widget 的普通 Start / Stop 与 tray 的 Continue 现在有明确区分：
 
 - Widget Stop 只停止当前计时，不应调用 `showMainWindow()`，因此主窗口保持原来的隐藏/后台状态；
+- Widget Stop 会把 Widget 当前看到的完整 TimeEntry 快照随 IPC 一并交给主 renderer；`stopTimer` 在确认它与主 renderer 当前 entry 是同一条（ID 相同，或 start + organization 相同；主 renderer 已空时也允许）后，以该快照作为停止更新的权威来源，避免主 renderer 的陈旧 Description / Project / Task 整对象覆盖服务器新值；Description 正在编辑时，Stop 快照会直接采用当前 draft；
 - Widget 普通 Start 明确创建一个新的空白 work entry，不继承上一条 entry 的 Description / Project / Task；
 - tray 的 `Continue` 仍保留“继续上一条 entry”的语义；
 - break 后的 Resume 仍恢复 break 前的 work entry；
@@ -258,7 +259,7 @@ src/renderer/src/utils/timerSyncState.ts
 8. `Ctrl+R` 在主窗口和 Mini Widget 内都是 Sync，不是 renderer reload；两者分别刷新各自 QueryClient 的 active queries。
 9. Widget 是独立 QueryClient，不能假设主窗口的 focus 配置会自动作用于 Widget。
 10. 修改 title bar 时要注意 Windows 原生 `_ / □ / ×` 区域，不要靠容易漂移的绝对定位重新制造错位。
-11. Widget Stop 不应主动显示主窗口；Widget 普通 Start 必须保持空白新建，而 tray Continue 才恢复上一条 entry。
+11. Widget Stop 不应主动显示主窗口；Widget Stop 必须继续携带 Widget 当前 TimeEntry 快照，主 renderer 只能在确认是同一条 entry 后用它执行停止，不能重新退回仅使用主 renderer 自己可能陈旧的整对象；Widget 普通 Start 必须保持空白新建，而 tray Continue 才恢复上一条 entry。
 12. Widget 停止后的同步必须继续按 entry ID 忽略刚停止的同一条陈旧 active entry；服务器确认无 active entry 或返回不同的新 entry 后应解除 guard，不能用固定 UI 延迟代替状态一致性处理。
 
 ## 5. Windows 11 x64 本地构建
@@ -510,7 +511,7 @@ npx --yes electron-builder@26.0.3 --config electron-builder.yml --win nsis --x64
 - Project/Task Picker 与 Description History 在不同 DPI 显示器上是否仍与 Widget 等宽；
 - 当前 fork 是否仍基于文档记录的 upstream release / commit；若升级基线，应同步更新 `0.3.x-cyan.N` 版本与建议 tag 命名；
 - 修改源码后是否先重新生成 `out/` 再打包，避免把旧 renderer / preload / main 产物重新封装进新的 EXE；
-- Widget Stop 是否保持主窗口隐藏，Widget 普通 Start 是否仍为空白新建，tray Continue 是否仍恢复上一条 entry。
+- Widget Stop 是否保持主窗口隐藏，并携带 Widget 当前完整 TimeEntry 快照；停止后服务器是否保留 Widget 中最新的 Description / Project / Task（尤其是全新或很久未使用的 Description）；Widget 普通 Start 是否仍为空白新建，tray Continue 是否仍恢复上一条 entry。
 
 ## 7. 文档维护规则
 

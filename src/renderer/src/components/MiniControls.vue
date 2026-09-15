@@ -195,7 +195,12 @@ function onToggleButtonPress(newState: boolean) {
     if (newState) {
         window.electronAPI.startTimer(true)
     } else {
-        sendEventToWindow('main', 'stopTimer')
+        const stopSnapshot = { ...currentTimeEntry.value }
+        if (isEditingDescription.value) {
+            const description = descriptionDraft.value.trim()
+            stopSnapshot.description = description || null
+        }
+        window.electronAPI.stopTimer(stopSnapshot)
     }
 }
 

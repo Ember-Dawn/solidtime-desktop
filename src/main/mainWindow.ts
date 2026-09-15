@@ -130,8 +130,8 @@ export function registerMainWindowListeners(mainWindow: BrowserWindow) {
     ipcMain.on('startTimer', (_event, startBlank: boolean = false) => {
         mainWindow.webContents.send('startTimer', startBlank)
     })
-    ipcMain.on('stopTimer', () => {
-        mainWindow.webContents.send('stopTimer')
+    ipcMain.on('stopTimer', (_event, timeEntry) => {
+        mainWindow.webContents.send('stopTimer', timeEntry)
     })
     ipcMain.on('startBreak', () => {
         mainWindow.webContents.send('startBreak')

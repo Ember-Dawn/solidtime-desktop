@@ -80,9 +80,19 @@ export function useTimer() {
     /**
      * Stop the current timer
      * @param endTime - Optional end time (ISO string). If not provided, uses current time
+     * @param sourceTimeEntry - Optional authoritative snapshot from another renderer (e.g. Widget)
      */
-    async function stopTimer(endTime?: string) {
-        const stoppedTimeEntry = { ...currentTimeEntry.value }
+    async function stopTimer(endTime?: string, sourceTimeEntry?: TimeEntry) {
+        const localTimeEntry = currentTimeEntry.value
+        const sourceMatchesCurrent =
+            sourceTimeEntry !== undefined &&
+            (localTimeEntry.start === '' ||
+                sourceTimeEntry.id === localTimeEntry.id ||
+                (sourceTimeEntry.start === localTimeEntry.start &&
+                    sourceTimeEntry.organization_id === localTimeEntry.organization_id))
+        const stoppedTimeEntry = sourceMatchesCurrent
+            ? { ...sourceTimeEntry }
+            : { ...localTimeEntry }
         if (stoppedTimeEntry.id === '') {
             // The entry may still be creating — pick up its optimistic id from
             // the query cache so the queued stop can resolve it to the real one
