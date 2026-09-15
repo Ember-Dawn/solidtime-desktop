@@ -191,11 +191,17 @@ function focusMainWindow() {
     showMainWindow()
 }
 
+function createIpcSafeTimeEntrySnapshot(timeEntry: TimeEntry): TimeEntry {
+    // currentTimeEntry is reactive. Electron contextBridge / IPC cannot clone Vue Proxy values,
+    // so normalize the API entity to a plain JSON object before sending it across processes.
+    return JSON.parse(JSON.stringify(timeEntry)) as TimeEntry
+}
+
 function onToggleButtonPress(newState: boolean) {
     if (newState) {
         window.electronAPI.startTimer(true)
     } else {
-        const stopSnapshot = { ...currentTimeEntry.value }
+        const stopSnapshot = createIpcSafeTimeEntrySnapshot(currentTimeEntry.value)
         if (isEditingDescription.value) {
             const description = descriptionDraft.value.trim()
             stopSnapshot.description = description || null
